@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -24,7 +24,7 @@ from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError, SessionPasswordNeededError
 from telethon.tl.types import User as TelethonUser
 
-from bot import db
+from . import db
 
 
 # Configure logging
@@ -94,7 +94,7 @@ def get_chat_identity(dialog) -> tuple:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
     keyboard = [[
-        InlineKeyboardButton("🔐 Login via WebApp", url=WEBAPP_URL)
+        InlineKeyboardButton("🔐 Login via WebApp", web_app=WebAppInfo(url=WEBAPP_URL))
     ]]
 
     await update.message.reply_text(
@@ -116,14 +116,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - Start the bot\n"
         "/login - Authenticate via WebApp\n"
         "/status - Check your authentication status\n"
-        "/list - List your chats/channels\n"
+        "/list - List your chats/channels (with pagination)\n"
+        "/search - Search for chats by name\n"
         "/export - Export chat history to file\n"
         "/logout - Delete your session data\n"
         "/help - Show this help message\n\n"
         "*How to use:*\n"
         "1. Click /login and authenticate through the web page\n"
-        "2. View your chats with /list\n"
-        "3. Export any chat with /export\n\n"
+        "2. View your chats with /list (navigate with Previous/Next buttons)\n"
+        "3. Or search for a specific chat: /search Python\n"
+        "4. Export any chat with /export\n\n"
         "⚠️ *Important:* All authentication happens through the web interface. "
         "I will never ask for codes or passwords in this chat.",
         parse_mode=ParseMode.MARKDOWN
@@ -133,7 +135,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /login command - opens WebApp."""
     keyboard = [[
-        InlineKeyboardButton("🔐 Login via WebApp", url=WEBAPP_URL)
+        InlineKeyboardButton("🔐 Login via WebApp", web_app=WebAppInfo(url=WEBAPP_URL))
     ]]
 
     await update.message.reply_text(
@@ -178,8 +180,57 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+CHATS_PER_PAGE = 10
+
+
+async def show_chats_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+    """Show paginated chat list."""
+    dialogs = context.user_data.get('all_dialogs', [])
+    total_pages = (len(dialogs) + CHATS_PER_PAGE - 1) // CHATS_PER_PAGE
+
+    if page < 0 or page >= total_pages:
+        return
+
+    start_idx = page * CHATS_PER_PAGE
+    end_idx = start_idx + CHATS_PER_PAGE
+    page_dialogs = dialogs[start_idx:end_idx]
+
+    # Format chat list for this page
+    chat_list = [f"*Your Chats (Page {page + 1}/{total_pages}):*\n"]
+    for i, dialog in enumerate(page_dialogs, start_idx + 1):
+        chat_name = dialog.name
+        chat_type = "👤" if dialog.is_user else "👥" if dialog.is_group else "📢"
+        chat_list.append(f"{i}. {chat_type} {chat_name}")
+
+    chat_text = "\n".join(chat_list)
+    chat_text += "\n\nUse /export to export a chat.\nUse /search to find a chat by name."
+
+    # Create navigation buttons
+    keyboard = []
+    buttons_row = []
+    if page > 0:
+        buttons_row.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"list_page_{page - 1}"))
+    if page < total_pages - 1:
+        buttons_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"list_page_{page + 1}"))
+    if buttons_row:
+        keyboard.append(buttons_row)
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            chat_text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
+        )
+    else:
+        await update.message.reply_text(
+            chat_text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
+        )
+
+
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /list command - show user's chats."""
+    """Handle /list command - show user's chats with pagination."""
     user_id = update.effective_user.id
 
     if not db.is_user_authenticated(user_id):
@@ -208,28 +259,21 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get user's dialogs (chats)
         await update.message.reply_text("📋 Fetching your chats...")
 
-        dialogs = await client.get_dialogs(limit=50)
+        dialogs = await client.get_dialogs(limit=100)
 
         if not dialogs:
             await update.message.reply_text("No chats found.")
             await client.disconnect()
             return
 
-        # Format chat list
-        chat_list = ["*Your Chats:*\n"]
-        for i, dialog in enumerate(dialogs, 1):
-            chat_name = dialog.name
-            chat_type = "👤" if dialog.is_user else "👥" if dialog.is_group else "📢"
-            chat_list.append(f"{i}. {chat_type} {chat_name}")
+        # Store dialogs in context for pagination
+        context.user_data['all_dialogs'] = dialogs
+        context.user_data['current_page'] = 0
 
-        chat_text = "\n".join(chat_list[:30])  # Limit to 30 chats to avoid message length issues
-        if len(dialogs) > 30:
-            chat_text += f"\n\n... and {len(dialogs) - 30} more chats"
-
-        chat_text += "\n\nUse /export to export a chat."
-
-        await update.message.reply_text(chat_text, parse_mode=ParseMode.MARKDOWN)
         await client.disconnect()
+
+        # Show first page
+        await show_chats_page(update, context, 0)
 
     except FloodWaitError as e:
         await update.message.reply_text(
@@ -241,6 +285,121 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error listing chats: {str(e)}", exc_info=True)
         await update.message.reply_text(
             f"❌ Error fetching chats: {str(e)}"
+        )
+        try:
+            await client.disconnect()
+        except:
+            pass
+
+
+async def list_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle pagination button clicks."""
+    query = update.callback_query
+    await query.answer()
+
+    # Extract page number from callback data
+    page = int(query.data.split('_')[2])
+    context.user_data['current_page'] = page
+
+    await show_chats_page(update, context, page)
+
+
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /search command - search for chats by name."""
+    user_id = update.effective_user.id
+    search_query = ' '.join(context.args).lower() if context.args else ""
+
+    if not search_query:
+        await update.message.reply_text(
+            "📝 *Usage:* /search <chat name>\n\n"
+            "Example: /search Python\n"
+            "Example: /search John",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    if not db.is_user_authenticated(user_id):
+        await update.message.reply_text(
+            "❌ You need to authenticate first. Use /login"
+        )
+        return
+
+    client = get_user_client(user_id)
+    if not client:
+        await update.message.reply_text(
+            "❌ Session not found. Please use /login to authenticate."
+        )
+        return
+
+    try:
+        await client.connect()
+
+        if not await client.is_user_authorized():
+            await update.message.reply_text(
+                "❌ Session expired. Please use /login to re-authenticate."
+            )
+            await client.disconnect()
+            return
+
+        # Get all dialogs
+        dialogs = await client.get_dialogs(limit=100)
+        await client.disconnect()
+
+        # Filter by search query
+        results = [d for d in dialogs if search_query in d.name.lower()]
+
+        if not results:
+            await update.message.reply_text(
+                f"❌ No chats found matching '{search_query}'"
+            )
+            return
+
+        # Store search results in context for callback handlers
+        context.user_data['search_results'] = []
+        for dialog in results:
+            chat_id, chat_type = get_chat_identity(dialog)
+            context.user_data['search_results'].append({
+                'id': dialog.id,
+                'name': dialog.name,
+                'is_user': dialog.is_user,
+                'is_group': dialog.is_group,
+                'is_channel': dialog.is_channel,
+                'chat_id': chat_id,
+                'chat_type': chat_type
+            })
+
+        # Format results with buttons (limit to 10 for display)
+        results_to_show = results[:10]
+        chat_list = [f"*Search Results for '{search_query}':* ({len(results)} found)\n"]
+        for i, dialog in enumerate(results_to_show, 1):
+            chat_type = "👤" if dialog.is_user else "👥" if dialog.is_group else "📢"
+            chat_list.append(f"{i}. {chat_type} {dialog.name}")
+
+        if len(results) > 10:
+            chat_list.append(f"\n... and {len(results) - 10} more results")
+
+        chat_text = "\n".join(chat_list)
+
+        # Create inline buttons for exporting (one button per search result, up to 10)
+        keyboard = []
+        for i in range(min(len(results_to_show), 10)):
+            dialog = results_to_show[i]
+            chat_type = "👤" if dialog.is_user else "👥" if dialog.is_group else "📢"
+            button_text = f"📥 {chat_type} {dialog.name}"
+            keyboard.append([
+                InlineKeyboardButton(button_text, callback_data=f"search_export_{i}")
+            ])
+
+        await update.message.reply_text(
+            chat_text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
+        )
+
+    except Exception as e:
+        logger.error(f"Error searching chats: {str(e)}", exc_info=True)
+        await update.message.reply_text(
+            f"❌ Error searching chats: {str(e)}"
         )
         try:
             await client.disconnect()
@@ -502,6 +661,352 @@ async def export_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle export button from search results."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+
+    try:
+        # Extract index from callback data
+        index = int(query.data.split('_')[2])
+        search_results = context.user_data.get('search_results', [])
+
+        if index < 0 or index >= len(search_results):
+            await query.edit_message_text("❌ Chat not found")
+            return
+
+        # Store selected chat
+        selected_chat = search_results[index]
+        context.user_data['selected_chat'] = selected_chat
+        chat_id = selected_chat['chat_id']
+        chat_type = selected_chat['chat_type']
+
+        # Check if this chat was previously exported
+        last_message_id = db.get_chat_progress(user_id, chat_id, chat_type)
+
+        if last_message_id:
+            # Chat was already exported - show options
+            keyboard = [
+                [InlineKeyboardButton("📥 Only new messages", callback_data=f"search_export_mode_incremental_{index}")],
+                [InlineKeyboardButton("🔄 Export all again", callback_data=f"search_export_mode_full_{index}")]
+            ]
+            await query.edit_message_text(
+                f"📊 Selected: *{selected_chat['name']}*\n\n"
+                "This chat was previously exported. Choose an option:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            # First export - ask for message limit
+            context.user_data['awaiting_search_export_limit'] = True
+            await query.edit_message_text(
+                f"📊 Selected: *{selected_chat['name']}*\n\n"
+                "How many messages to export? (Default: 1000, Max: 10000)\n"
+                "Reply with a number or /cancel",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+    except Exception as e:
+        logger.error(f"Error in search_export_callback: {str(e)}", exc_info=True)
+        await query.edit_message_text(f"❌ Error: {str(e)}")
+
+
+async def search_export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle export mode selection (incremental vs full)."""
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        callback_data = query.data
+
+        if callback_data.startswith("search_export_mode_incremental_"):
+            # User chose "only new messages"
+            context.user_data['export_mode'] = 'incremental'
+            context.user_data['awaiting_search_export_limit'] = False
+
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"⏳ Exporting new messages from *{selected_chat['name']}*...\n"
+                "This may take a while.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            # Trigger the export immediately without waiting for user input
+            await search_export_do_incremental(update, context)
+
+        elif callback_data.startswith("search_export_mode_full_"):
+            # User chose "export all again"
+            context.user_data['export_mode'] = 'full'
+            context.user_data['awaiting_search_export_limit'] = True
+
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"📊 Selected: *{selected_chat['name']}*\n\n"
+                "How many messages to export? (Default: 1000, Max: 10000)\n"
+                "Reply with a number or /cancel",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+    except Exception as e:
+        logger.error(f"Error in search_export_mode_callback: {str(e)}", exc_info=True)
+        await query.edit_message_text(f"❌ Error: {str(e)}")
+
+
+async def search_export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Perform incremental export (new messages only)."""
+    user_id = update.effective_user.id
+
+    try:
+        selected_chat = context.user_data.get('selected_chat')
+        if not selected_chat:
+            await update.callback_query.edit_message_text("❌ Chat selection lost. Please search again.")
+            return
+
+        chat_id = selected_chat['chat_id']
+        chat_type = selected_chat['chat_type']
+
+        # Get last message id for incremental export
+        last_message_id = db.get_chat_progress(user_id, chat_id, chat_type)
+
+        # Get client
+        client = get_user_client(user_id)
+        if not client:
+            await update.callback_query.edit_message_text("❌ Session not found")
+            return
+
+        await client.connect()
+
+        # Export only new messages
+        messages = []
+        message_ids = []
+
+        async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
+            if message.text:
+                sender = "Unknown"
+                if message.sender:
+                    if isinstance(message.sender, TelethonUser):
+                        sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
+                        if not sender:
+                            sender = f"User_{message.sender.id}"
+                    else:
+                        sender = getattr(message.sender, 'title', 'Unknown')
+
+                timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
+                messages.append(f"[{timestamp}] {sender}: {message.text}")
+                message_ids.append(message.id)
+
+        await client.disconnect()
+
+        # Check if there are any new messages
+        if not messages:
+            await update.callback_query.edit_message_text(
+                f"⚠️ No new messages in *{selected_chat['name']}* since last export.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        # Reverse to chronological order
+        messages.reverse()
+
+        # Create file
+        filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        filename = "".join(c for c in filename if c.isalnum() or c in ('_', '-', '.'))
+
+        filepath = f"/tmp/{filename}"
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f"Chat: {selected_chat['name']}\n")
+            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Export type: Incremental (new messages only)\n")
+            f.write(f"Total messages: {len(messages)}\n")
+            f.write("=" * 80 + "\n\n")
+            f.write("\n".join(messages))
+
+        # Send file
+        with open(filepath, 'rb') as f:
+            await update.effective_chat.send_document(
+                document=f,
+                filename=filename,
+                caption=f"✅ Exported {len(messages)} new messages from *{selected_chat['name']}* (since last export)",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        # Clean up file
+        os.remove(filepath)
+
+        # Save progress
+        if message_ids:
+            new_last_message_id = max(message_ids)
+            db.upsert_chat_progress(user_id, chat_id, chat_type, new_last_message_id)
+            logger.info(f"Updated chat progress for user {user_id}, chat {chat_id}: last_message_id={new_last_message_id}")
+
+    except Exception as e:
+        logger.error(f"Error during incremental export: {str(e)}", exc_info=True)
+        try:
+            await update.callback_query.edit_message_text(f"❌ Export failed: {str(e)}")
+        except:
+            await update.effective_chat.send_message(f"❌ Export failed: {str(e)}")
+        try:
+            await client.disconnect()
+        except:
+            pass
+
+
+async def search_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle message limit input for search export."""
+    # Check if we're awaiting a search export limit
+    if not context.user_data.get('awaiting_search_export_limit'):
+        return
+
+    context.user_data['awaiting_search_export_limit'] = False
+
+    # Reuse the export_do_export logic
+    user_id = update.effective_user.id
+
+    try:
+        # Parse limit
+        limit = 1000
+        if update.message.text.isdigit():
+            limit = min(int(update.message.text), 10000)  # Max 10k messages
+
+        selected_chat = context.user_data.get('selected_chat')
+        if not selected_chat:
+            await update.message.reply_text("❌ Chat selection lost. Please search again.")
+            return
+
+        # Get chat identity for progress tracking
+        chat_id = selected_chat['chat_id']
+        chat_type = selected_chat['chat_type']
+
+        # Check for existing progress
+        last_message_id = db.get_chat_progress(user_id, chat_id, chat_type)
+        is_incremental = last_message_id is not None
+
+        if is_incremental:
+            await update.message.reply_text(
+                f"⏳ Exporting *new* messages from *{selected_chat['name']}* since last export...\n"
+                "This may take a while.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            await update.message.reply_text(
+                f"⏳ Exporting up to {limit} messages from *{selected_chat['name']}*...\n"
+                "This may take a while.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        # Get client
+        client = get_user_client(user_id)
+        if not client:
+            await update.message.reply_text("❌ Session not found")
+            return
+
+        await client.connect()
+
+        # Export messages
+        messages = []
+        message_ids = []
+
+        if is_incremental:
+            # Incremental export: get only messages newer than last_message_id
+            async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
+                if message.text:
+                    sender = "Unknown"
+                    if message.sender:
+                        if isinstance(message.sender, TelethonUser):
+                            sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
+                            if not sender:
+                                sender = f"User_{message.sender.id}"
+                        else:
+                            sender = getattr(message.sender, 'title', 'Unknown')
+
+                    timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
+                    messages.append(f"[{timestamp}] {sender}: {message.text}")
+                    message_ids.append(message.id)
+        else:
+            # First export: get up to limit messages
+            async for message in client.iter_messages(selected_chat['id'], limit=limit):
+                if message.text:
+                    sender = "Unknown"
+                    if message.sender:
+                        if isinstance(message.sender, TelethonUser):
+                            sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
+                            if not sender:
+                                sender = f"User_{message.sender.id}"
+                        else:
+                            sender = getattr(message.sender, 'title', 'Unknown')
+
+                    timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
+                    messages.append(f"[{timestamp}] {sender}: {message.text}")
+                    message_ids.append(message.id)
+
+        await client.disconnect()
+
+        # Check if there are any new messages
+        if not messages:
+            if is_incremental:
+                await update.message.reply_text(
+                    f"⚠️ No new messages in *{selected_chat['name']}* since last export.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await update.message.reply_text("❌ No text messages found in this chat")
+            return
+
+        # Reverse to chronological order
+        messages.reverse()
+
+        # Create file
+        filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        filename = "".join(c for c in filename if c.isalnum() or c in ('_', '-', '.'))  # Sanitize
+
+        filepath = f"/tmp/{filename}"
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f"Chat: {selected_chat['name']}\n")
+            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            if is_incremental:
+                f.write(f"Export type: Incremental (new messages only)\n")
+            else:
+                f.write(f"Export type: Full export\n")
+            f.write(f"Total messages: {len(messages)}\n")
+            f.write("=" * 80 + "\n\n")
+            f.write("\n".join(messages))
+
+        # Prepare caption
+        if is_incremental:
+            caption = f"✅ Exported {len(messages)} new messages from *{selected_chat['name']}* (since last export)"
+        else:
+            caption = f"✅ Full export of *{selected_chat['name']}* - {len(messages)} messages"
+
+        # Send file
+        with open(filepath, 'rb') as f:
+            await update.message.reply_document(
+                document=f,
+                filename=filename,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        # Clean up file
+        os.remove(filepath)
+
+        # Save progress
+        if message_ids:
+            new_last_message_id = max(message_ids)
+            db.upsert_chat_progress(user_id, chat_id, chat_type, new_last_message_id)
+            logger.info(f"Updated chat progress for user {user_id}, chat {chat_id}: last_message_id={new_last_message_id}")
+
+    except Exception as e:
+        logger.error(f"Error during search export: {str(e)}", exc_info=True)
+        await update.message.reply_text(f"❌ Export failed: {str(e)}")
+        try:
+            await client.disconnect()
+        except:
+            pass
+
+
 async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /logout command with confirmation."""
     keyboard = [
@@ -551,9 +1056,19 @@ def main():
     application.add_handler(CommandHandler("login", login_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("list", list_command))
+    application.add_handler(CommandHandler("search", search_command))
     application.add_handler(CommandHandler("logout", logout_command))
 
-    # Export conversation handler
+    # Pagination callback handler
+    application.add_handler(CallbackQueryHandler(list_page_callback, pattern="^list_page_"))
+
+    # Search export callback handler
+    application.add_handler(CallbackQueryHandler(search_export_callback, pattern="^search_export_[0-9]+$"))
+
+    # Search export mode callback handler (for incremental vs full choice)
+    application.add_handler(CallbackQueryHandler(search_export_mode_callback, pattern="^search_export_mode_"))
+
+    # Export conversation handler (MUST be before search_export_limit to take priority)
     export_conv = ConversationHandler(
         entry_points=[CommandHandler("export", export_start)],
         states={
@@ -567,6 +1082,9 @@ def main():
         fallbacks=[CommandHandler("cancel", export_cancel)],
     )
     application.add_handler(export_conv)
+
+    # Search export limit handler (listen for message responses - AFTER export_conv)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_export_limit))
 
     # Logout callback handler
     application.add_handler(CallbackQueryHandler(logout_callback, pattern="^logout_"))
