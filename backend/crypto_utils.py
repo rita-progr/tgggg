@@ -6,9 +6,10 @@ import os
 from cryptography.fernet import Fernet
 
 
-# Read encryption key from environment variable
-ENCRYPTION_KEY = os.environ["ENCRYPTION_KEY"].encode()
-cipher = Fernet(ENCRYPTION_KEY)
+def _get_cipher():
+    """Get cipher instance from environment variable."""
+    encryption_key = os.environ["ENCRYPTION_KEY"].encode()
+    return Fernet(encryption_key)
 
 
 def encrypt(value: str) -> str:
@@ -21,6 +22,7 @@ def encrypt(value: str) -> str:
     Returns:
         Encrypted string (base64 encoded)
     """
+    cipher = _get_cipher()
     return cipher.encrypt(value.encode()).decode()
 
 
@@ -34,4 +36,5 @@ def decrypt(value: str) -> str:
     Returns:
         Decrypted plain text string
     """
+    cipher = _get_cipher()
     return cipher.decrypt(value.encode()).decode()

@@ -8,10 +8,6 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 
-API_ID = int(os.environ["TG_API_ID"])
-API_HASH = os.environ["TG_API_HASH"]
-
-
 def create_client_from_string(session_string: Optional[str] = None) -> TelegramClient:
     """
     Create a TelegramClient with StringSession.
@@ -22,9 +18,12 @@ def create_client_from_string(session_string: Optional[str] = None) -> TelegramC
     Returns:
         TelegramClient instance (not connected)
     """
+    api_id = int(os.environ["TG_API_ID"])
+    api_hash = os.environ["TG_API_HASH"]
+
     if session_string:
         session = StringSession(session_string)
     else:
         session = StringSession()
 
-    return TelegramClient(session, API_ID, API_HASH)
+    return TelegramClient(session, api_id, api_hash)
