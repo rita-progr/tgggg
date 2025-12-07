@@ -480,6 +480,8 @@ async def export_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def export_select_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle chat selection."""
+    user_id = update.effective_user.id
+
     try:
         chat_num = int(update.message.text)
         dialogs = context.user_data.get('dialogs', [])
@@ -490,19 +492,184 @@ async def export_select_chat(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return SELECTING_CHAT
 
-        context.user_data['selected_chat'] = dialogs[chat_num - 1]
+        selected_chat = dialogs[chat_num - 1]
+        context.user_data['selected_chat'] = selected_chat
+        chat_id = selected_chat['chat_id']
+        chat_type = selected_chat['chat_type']
 
-        await update.message.reply_text(
-            f"📊 Selected: *{dialogs[chat_num - 1]['name']}*\n\n"
-            "How many messages to export? (Default: 1000)\n"
-            "Reply with a number or /cancel",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return ENTERING_LIMIT
+        # Check if this chat was previously exported
+        last_message_id = db.get_chat_progress(user_id, chat_id, chat_type)
+
+        if last_message_id:
+            # Chat was already exported - show options
+            keyboard = [
+                [InlineKeyboardButton("📥 Only new messages", callback_data="export_mode_incremental")],
+                [InlineKeyboardButton("🔄 Export all again", callback_data="export_mode_full")]
+            ]
+            await update.message.reply_text(
+                f"📊 Selected: *{selected_chat['name']}*\n\n"
+                "This chat was previously exported. Choose an option:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return ENTERING_LIMIT
+        else:
+            # First export - ask for message limit
+            await update.message.reply_text(
+                f"📊 Selected: *{selected_chat['name']}*\n\n"
+                "How many messages to export? (Default: 1000, Max: 10000)\n"
+                "Reply with a number or /cancel",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return ENTERING_LIMIT
 
     except ValueError:
         await update.message.reply_text("❌ Please enter a valid number")
         return SELECTING_CHAT
+
+
+async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle export mode selection for /export command (incremental vs full)."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+
+    try:
+        callback_data = query.data
+
+        if callback_data == "export_mode_incremental":
+            # User chose "only new messages"
+            context.user_data['export_mode'] = 'incremental'
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"⏳ Exporting new messages from *{selected_chat['name']}*...\n"
+                "This may take a while.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            # Trigger the export immediately without waiting for user input
+            await export_do_incremental(update, context)
+            return ConversationHandler.END
+
+        elif callback_data == "export_mode_full":
+            # User chose "export all again"
+            context.user_data['export_mode'] = 'full'
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"📊 Selected: *{selected_chat['name']}*\n\n"
+                "How many messages to export? (Default: 1000, Max: 10000)\n"
+                "Reply with a number or /cancel",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return ENTERING_LIMIT
+
+    except Exception as e:
+        logger.error(f"Error in export_mode_callback: {str(e)}", exc_info=True)
+        await query.edit_message_text(f"❌ Error: {str(e)}")
+        return ConversationHandler.END
+
+
+async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Perform incremental export from /export command (new messages only)."""
+    user_id = update.effective_user.id
+
+    try:
+        selected_chat = context.user_data.get('selected_chat')
+        if not selected_chat:
+            if update.callback_query:
+                await update.callback_query.edit_message_text("❌ Chat selection lost. Please search again.")
+            else:
+                await update.message.reply_text("❌ Chat selection lost. Please search again.")
+            return ConversationHandler.END
+
+        chat_id = selected_chat['chat_id']
+        chat_type = selected_chat['chat_type']
+
+        # Get last message id for incremental export
+        last_message_id = db.get_chat_progress(user_id, chat_id, chat_type)
+
+        # Get client
+        client = get_user_client(user_id)
+        if not client:
+            await update.effective_chat.send_message("❌ Session not found")
+            return ConversationHandler.END
+
+        await client.connect()
+
+        # Export only new messages
+        messages = []
+        message_ids = []
+
+        async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
+            if message.text:
+                sender = "Unknown"
+                if message.sender:
+                    if isinstance(message.sender, TelethonUser):
+                        sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
+                        if not sender:
+                            sender = f"User_{message.sender.id}"
+                    else:
+                        sender = getattr(message.sender, 'title', 'Unknown')
+
+                timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
+                messages.append(f"[{timestamp}] {sender}: {message.text}")
+                message_ids.append(message.id)
+
+        await client.disconnect()
+
+        # Check if there are any new messages
+        if not messages:
+            await update.effective_chat.send_message(
+                f"⚠️ No new messages in *{selected_chat['name']}* since last export.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return ConversationHandler.END
+
+        # Reverse to chronological order
+        messages.reverse()
+
+        # Create file
+        filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        filename = "".join(c for c in filename if c.isalnum() or c in ('_', '-', '.'))
+
+        filepath = f"/tmp/{filename}"
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f"Chat: {selected_chat['name']}\n")
+            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Export type: Incremental (new messages only)\n")
+            f.write(f"Total messages: {len(messages)}\n")
+            f.write("=" * 80 + "\n\n")
+            f.write("\n".join(messages))
+
+        # Send file
+        with open(filepath, 'rb') as f:
+            await update.effective_chat.send_document(
+                document=f,
+                filename=filename,
+                caption=f"✅ Exported {len(messages)} new messages from *{selected_chat['name']}* (since last export)",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        # Clean up file
+        os.remove(filepath)
+
+        # Save progress
+        if message_ids:
+            new_last_message_id = max(message_ids)
+            db.upsert_chat_progress(user_id, chat_id, chat_type, new_last_message_id)
+            logger.info(f"Updated chat progress for user {user_id}, chat {chat_id}: last_message_id={new_last_message_id}")
+
+        return ConversationHandler.END
+
+    except Exception as e:
+        logger.error(f"Error during incremental export: {str(e)}", exc_info=True)
+        await update.effective_chat.send_message(f"❌ Export failed: {str(e)}")
+        try:
+            await client.disconnect()
+        except:
+            pass
+        return ConversationHandler.END
 
 
 async def export_do_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1067,6 +1234,9 @@ def main():
 
     # Search export mode callback handler (for incremental vs full choice)
     application.add_handler(CallbackQueryHandler(search_export_mode_callback, pattern="^search_export_mode_"))
+
+    # Export mode callback handler (for /export command - incremental vs full)
+    application.add_handler(CallbackQueryHandler(export_mode_callback, pattern="^export_mode_"))
 
     # Export conversation handler (MUST be before search_export_limit to take priority)
     export_conv = ConversationHandler(
