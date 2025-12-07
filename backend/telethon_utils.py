@@ -3,6 +3,7 @@ Telethon utilities for backend authentication flow.
 Creates Telegram clients using StringSession.
 """
 import os
+from typing import Optional
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
@@ -11,7 +12,7 @@ API_ID = int(os.environ["TG_API_ID"])
 API_HASH = os.environ["TG_API_HASH"]
 
 
-def create_client_from_string(session_string: str | None = None) -> TelegramClient:
+def create_client_from_string(session_string: Optional[str] = None) -> TelegramClient:
     """
     Create a TelegramClient with StringSession.
 

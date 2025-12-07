@@ -93,14 +93,19 @@ def get_chat_identity(dialog) -> tuple:
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
+    keyboard = [[
+        InlineKeyboardButton("🔐 Login via WebApp", url=WEBAPP_URL)
+    ]]
+
     await update.message.reply_text(
         "👋 Welcome to Telegram Chat Export Bot!\n\n"
         "I can help you export your Telegram chat history to text files.\n\n"
         "To get started:\n"
-        "1️⃣ Use /login to authenticate\n"
+        "1️⃣ Click the button below to authenticate\n"
         "2️⃣ Use /list to see your chats\n"
         "3️⃣ Use /export to export a chat\n\n"
-        "Type /help for more information."
+        "Type /help for more information.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
@@ -128,21 +133,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /login command - opens WebApp."""
     keyboard = [[
-        KeyboardButton(
-            "🔐 Login via WebApp",
-            web_app={"url": WEBAPP_URL}
-        )
+        InlineKeyboardButton("🔐 Login via WebApp", url=WEBAPP_URL)
     ]]
 
     await update.message.reply_text(
         "🔐 *Authentication*\n\n"
         "Click the button below to open the authentication page.\n\n"
-        "You'll be asked to:\n"
-        "1. Enter your phone number\n"
-        "2. Enter the confirmation code\n"
-        "3. Enter 2FA password (if enabled)\n\n"
+        "📝 *Steps:*\n"
+        "1️⃣ Enter your phone number\n"
+        "2️⃣ Enter the confirmation code\n"
+        "3️⃣ Enter 2FA password (if enabled)\n\n"
         "⚠️ All sensitive data is entered in the web page, not in this chat.",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
     )
 
