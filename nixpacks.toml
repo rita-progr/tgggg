@@ -2,7 +2,11 @@
 nixPkgs = ["python310"]
 
 [phases.install]
-cmds = ["cd backend && pip install -r requirements.txt"]
+cmds = [
+  "pip install -r requirements.txt",
+  "pip install -r backend/requirements.txt",
+  "pip install -r bot/requirements.txt"
+]
 
 [start]
-cmd = "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+cmd = "sh -c \"uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1 & python -m bot.bot && wait\""
