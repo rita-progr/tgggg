@@ -63,7 +63,11 @@ class ChatProgress(Base):
 
 
 # Create tables
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    # Tables may already exist if multiple processes start simultaneously
+    print(f"Tables already exist or error during creation: {type(e).__name__}")
 
 
 def get_db():
