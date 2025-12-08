@@ -1,1 +1,1 @@
-web: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1
+ web: sh -c "cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 & cd bot && python -m bot.bot"
