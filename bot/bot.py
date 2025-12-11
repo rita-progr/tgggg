@@ -22,9 +22,19 @@ from telegram.constants import ParseMode
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError, SessionPasswordNeededError
-from telethon.tl.types import User as TelethonUser
+from telethon.tl.types import (
+    User as TelethonUser,
+    MessageMediaPhoto,
+    MessageMediaDocument,
+    MessageMediaWebPage,
+    MessageMediaGeo,
+    MessageMediaContact,
+    MessageMediaPoll,
+    MessageService,
+)
 
 from . import db
+from .transcription import transcribe_voice, is_voice_message, TRANSCRIPTION_AVAILABLE
 
 
 # Configure logging
@@ -87,6 +97,128 @@ def get_chat_identity(dialog) -> tuple:
         chat_type = 'chat'
 
     return chat_id, chat_type
+
+
+def format_message_content(message, transcription: Optional[str] = None) -> Optional[str]:
+    """
+    Format message content for export, handling all message types.
+
+    Args:
+        message: Telethon Message object
+        transcription: Optional transcription text for voice messages
+
+    Returns:
+        Formatted message string or None if message should be skipped
+    """
+    # Skip service messages (user joined, left, etc.)
+    if isinstance(message, MessageService):
+        return None
+
+    # Get text content
+    text = message.text or message.message or ""
+
+    # Handle media messages
+    if message.media:
+        media_type = None
+        is_voice = False
+
+        if isinstance(message.media, MessageMediaPhoto):
+            media_type = "[Photo]"
+        elif isinstance(message.media, MessageMediaDocument):
+            # Determine document type
+            doc = message.media.document
+            if doc:
+                mime = getattr(doc, 'mime_type', '') or ''
+                if any(
+                    getattr(attr, 'voice', False)
+                    for attr in getattr(doc, 'attributes', [])
+                    if hasattr(attr, 'voice')
+                ):
+                    is_voice = True
+                    if transcription:
+                        media_type = f"[Voice message]: \"{transcription}\""
+                    else:
+                        media_type = "[Voice message]"
+                elif any(
+                    getattr(attr, 'round_message', False)
+                    for attr in getattr(doc, 'attributes', [])
+                    if hasattr(attr, 'round_message')
+                ):
+                    is_voice = True
+                    if transcription:
+                        media_type = f"[Video message]: \"{transcription}\""
+                    else:
+                        media_type = "[Video message]"
+                elif 'video' in mime:
+                    media_type = "[Video]"
+                elif 'audio' in mime:
+                    media_type = "[Audio]"
+                elif 'sticker' in mime or any(
+                    type(attr).__name__ == 'DocumentAttributeSticker'
+                    for attr in getattr(doc, 'attributes', [])
+                ):
+                    media_type = "[Sticker]"
+                elif 'gif' in mime or any(
+                    type(attr).__name__ == 'DocumentAttributeAnimated'
+                    for attr in getattr(doc, 'attributes', [])
+                ):
+                    media_type = "[GIF]"
+                else:
+                    # Get filename if available
+                    filename = None
+                    for attr in getattr(doc, 'attributes', []):
+                        if hasattr(attr, 'file_name'):
+                            filename = attr.file_name
+                            break
+                    if filename:
+                        media_type = f"[File: {filename}]"
+                    else:
+                        media_type = "[Document]"
+            else:
+                media_type = "[Document]"
+        elif isinstance(message.media, MessageMediaWebPage):
+            media_type = "[Link preview]"
+        elif isinstance(message.media, MessageMediaGeo):
+            media_type = "[Location]"
+        elif isinstance(message.media, MessageMediaContact):
+            media_type = "[Contact]"
+        elif isinstance(message.media, MessageMediaPoll):
+            poll = message.media.poll
+            question = getattr(poll, 'question', None)
+            if question:
+                # Handle both string and TextWithEntities
+                q_text = question if isinstance(question, str) else getattr(question, 'text', str(question))
+                media_type = f"[Poll: {q_text}]"
+            else:
+                media_type = "[Poll]"
+        else:
+            media_type = "[Media]"
+
+        # Combine media type with caption/text (skip for voice with transcription)
+        if text and not is_voice:
+            return f"{media_type} {text}"
+        else:
+            return media_type
+
+    # Plain text message
+    if text:
+        return text
+
+    # Message with no content we can export
+    return None
+
+
+def get_sender_name(message) -> str:
+    """Extract sender name from message."""
+    if message.sender:
+        if isinstance(message.sender, TelethonUser):
+            name = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
+            if not name:
+                name = f"User_{message.sender.id}"
+            return name
+        else:
+            return getattr(message.sender, 'title', 'Unknown')
+    return "Unknown"
 
 
 # Command handlers
@@ -507,6 +639,8 @@ async def export_select_chat(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 [InlineKeyboardButton("🔄 Export all again", callback_data="export_mode_full")],
                 [InlineKeyboardButton("⬇️ Export all (10000)", callback_data="export_mode_all_max")]
             ]
+            if TRANSCRIPTION_AVAILABLE:
+                keyboard.append([InlineKeyboardButton("🎤 Export all + transcribe voice", callback_data="export_mode_all_max_transcribe")])
             await update.message.reply_text(
                 f"📊 Selected: *{selected_chat['name']}*\n\n"
                 "This chat was previously exported. Choose an option:",
@@ -517,9 +651,11 @@ async def export_select_chat(update: Update, context: ContextTypes.DEFAULT_TYPE)
         else:
             # First export - show options with quick button
             keyboard = [
-                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data="export_mode_all_max")],
-                [InlineKeyboardButton("⚙️ Custom amount", callback_data="export_mode_custom")]
+                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data="export_mode_all_max")]
             ]
+            if TRANSCRIPTION_AVAILABLE:
+                keyboard.append([InlineKeyboardButton("🎤 Export all + transcribe voice", callback_data="export_mode_all_max_transcribe")])
+            keyboard.append([InlineKeyboardButton("⚙️ Custom amount", callback_data="export_mode_custom")])
             await update.message.reply_text(
                 f"📊 Selected: *{selected_chat['name']}*\n\n"
                 "How many messages to export?",
@@ -572,6 +708,7 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             # User chose "export all (10000)"
             context.user_data['export_mode'] = 'full'
             context.user_data['export_limit'] = 10000
+            context.user_data['transcribe_voice'] = False
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
                 f"⏳ Exporting all messages from *{selected_chat['name']}* (up to 10000)...\n"
@@ -579,6 +716,22 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 parse_mode=ParseMode.MARKDOWN
             )
             # Export with preset limit
+            await export_do_export_with_limit(update, context, 10000)
+            return ConversationHandler.END
+
+        elif callback_data == "export_mode_all_max_transcribe":
+            # User chose "export all (10000) + transcribe voice"
+            context.user_data['export_mode'] = 'full'
+            context.user_data['export_limit'] = 10000
+            context.user_data['transcribe_voice'] = True
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"⏳ Exporting all messages from *{selected_chat['name']}* (up to 10000)...\n"
+                "🎤 Voice messages will be transcribed.\n"
+                "This may take a while.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            # Export with preset limit and transcription
             await export_do_export_with_limit(update, context, 10000)
             return ConversationHandler.END
 
@@ -628,18 +781,11 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
         message_ids = []
 
         async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
-            if message.text:
-                sender = "Unknown"
-                if message.sender:
-                    if isinstance(message.sender, TelethonUser):
-                        sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
-                        if not sender:
-                            sender = f"User_{message.sender.id}"
-                    else:
-                        sender = getattr(message.sender, 'title', 'Unknown')
-
+            content = format_message_content(message)
+            if content:
+                sender = get_sender_name(message)
                 timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                messages.append(f"[{timestamp}] {sender}: {message.text}")
+                messages.append(f"[{timestamp}] {sender}: {content}")
                 message_ids.append(message.id)
 
         await client.disconnect()
@@ -751,34 +897,20 @@ async def export_do_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_incremental:
             # Incremental export: get only messages newer than last_message_id
             async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
-                if message.text:
-                    sender = "Unknown"
-                    if message.sender:
-                        if isinstance(message.sender, TelethonUser):
-                            sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
-                            if not sender:
-                                sender = f"User_{message.sender.id}"
-                        else:
-                            sender = getattr(message.sender, 'title', 'Unknown')
-
+                content = format_message_content(message)
+                if content:
+                    sender = get_sender_name(message)
                     timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                    messages.append(f"[{timestamp}] {sender}: {message.text}")
+                    messages.append(f"[{timestamp}] {sender}: {content}")
                     message_ids.append(message.id)
         else:
             # First export: get up to limit messages
             async for message in client.iter_messages(selected_chat['id'], limit=limit):
-                if message.text:
-                    sender = "Unknown"
-                    if message.sender:
-                        if isinstance(message.sender, TelethonUser):
-                            sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
-                            if not sender:
-                                sender = f"User_{message.sender.id}"
-                        else:
-                            sender = getattr(message.sender, 'title', 'Unknown')
-
+                content = format_message_content(message)
+                if content:
+                    sender = get_sender_name(message)
                     timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                    messages.append(f"[{timestamp}] {sender}: {message.text}")
+                    messages.append(f"[{timestamp}] {sender}: {content}")
                     message_ids.append(message.id)
 
         await client.disconnect()
@@ -791,7 +923,7 @@ async def export_do_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.MARKDOWN
                 )
             else:
-                await update.message.reply_text("❌ No text messages found in this chat")
+                await update.message.reply_text("❌ No messages found in this chat")
             return ConversationHandler.END
 
         # Reverse to chronological order
@@ -853,6 +985,7 @@ async def export_do_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFAULT_TYPE, limit: int):
     """Perform export with a preset limit (called from callback buttons)."""
     user_id = update.effective_user.id
+    transcribe = context.user_data.get('transcribe_voice', False)
 
     try:
         selected_chat = context.user_data.get('selected_chat')
@@ -875,26 +1008,30 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
         # Export messages
         messages = []
         message_ids = []
+        voice_count = 0
+        transcribed_count = 0
 
         async for message in client.iter_messages(selected_chat['id'], limit=limit):
-            if message.text:
-                sender = "Unknown"
-                if message.sender:
-                    if isinstance(message.sender, TelethonUser):
-                        sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
-                        if not sender:
-                            sender = f"User_{message.sender.id}"
-                    else:
-                        sender = getattr(message.sender, 'title', 'Unknown')
+            transcription = None
 
+            # Transcribe voice messages if enabled
+            if transcribe and is_voice_message(message):
+                voice_count += 1
+                transcription = await transcribe_voice(client, message)
+                if transcription:
+                    transcribed_count += 1
+
+            content = format_message_content(message, transcription)
+            if content:
+                sender = get_sender_name(message)
                 timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                messages.append(f"[{timestamp}] {sender}: {message.text}")
+                messages.append(f"[{timestamp}] {sender}: {content}")
                 message_ids.append(message.id)
 
         await client.disconnect()
 
         if not messages:
-            await update.effective_chat.send_message("❌ No text messages found in this chat")
+            await update.effective_chat.send_message("❌ No messages found in this chat")
             return ConversationHandler.END
 
         # Reverse to chronological order
@@ -910,11 +1047,15 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
             f.write(f"Chat: {selected_chat['name']}\n")
             f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Export type: Full export\n")
+            if transcribe:
+                f.write(f"Voice transcription: {transcribed_count}/{voice_count} transcribed\n")
             f.write(f"Total messages: {len(messages)}\n")
             f.write("=" * 80 + "\n\n")
             f.write("\n".join(messages))
 
         caption = f"✅ Full export of *{selected_chat['name']}* - {len(messages)} messages"
+        if transcribe and voice_count > 0:
+            caption += f"\n🎤 Transcribed {transcribed_count}/{voice_count} voice messages"
 
         # Send file
         with open(filepath, 'rb') as f:
@@ -984,6 +1125,8 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
                 [InlineKeyboardButton("🔄 Export all again", callback_data=f"search_export_mode_full_{index}")],
                 [InlineKeyboardButton("⬇️ Export all (10000)", callback_data=f"search_export_mode_all_max_{index}")]
             ]
+            if TRANSCRIPTION_AVAILABLE:
+                keyboard.append([InlineKeyboardButton("🎤 Export all + transcribe", callback_data=f"search_export_mode_transcribe_{index}")])
             await query.edit_message_text(
                 f"📊 Selected: *{selected_chat['name']}*\n\n"
                 "This chat was previously exported. Choose an option:",
@@ -993,9 +1136,11 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
         else:
             # First export - show options with quick button
             keyboard = [
-                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data=f"search_export_mode_all_max_{index}")],
-                [InlineKeyboardButton("⚙️ Custom amount", callback_data=f"search_export_mode_custom_{index}")]
+                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data=f"search_export_mode_all_max_{index}")]
             ]
+            if TRANSCRIPTION_AVAILABLE:
+                keyboard.append([InlineKeyboardButton("🎤 Export all + transcribe", callback_data=f"search_export_mode_transcribe_{index}")])
+            keyboard.append([InlineKeyboardButton("⚙️ Custom amount", callback_data=f"search_export_mode_custom_{index}")])
             await query.edit_message_text(
                 f"📊 Selected: *{selected_chat['name']}*\n\n"
                 "How many messages to export?",
@@ -1049,6 +1194,7 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
             context.user_data['export_mode'] = 'full'
             context.user_data['awaiting_search_export_limit'] = False
             context.user_data['export_limit'] = 10000
+            context.user_data['transcribe_voice'] = False
 
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
@@ -1057,6 +1203,23 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
                 parse_mode=ParseMode.MARKDOWN
             )
             # Export with preset limit
+            await search_export_with_limit(update, context, 10000)
+
+        elif callback_data.startswith("search_export_mode_transcribe_"):
+            # User chose "export all + transcribe"
+            context.user_data['export_mode'] = 'full'
+            context.user_data['awaiting_search_export_limit'] = False
+            context.user_data['export_limit'] = 10000
+            context.user_data['transcribe_voice'] = True
+
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"⏳ Exporting all messages from *{selected_chat['name']}* (up to 10000)...\n"
+                "🎤 Voice messages will be transcribed.\n"
+                "This may take a while.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            # Export with preset limit and transcription
             await search_export_with_limit(update, context, 10000)
 
         elif callback_data.startswith("search_export_mode_custom_"):
@@ -1101,18 +1264,11 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         message_ids = []
 
         async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
-            if message.text:
-                sender = "Unknown"
-                if message.sender:
-                    if isinstance(message.sender, TelethonUser):
-                        sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
-                        if not sender:
-                            sender = f"User_{message.sender.id}"
-                    else:
-                        sender = getattr(message.sender, 'title', 'Unknown')
-
+            content = format_message_content(message)
+            if content:
+                sender = get_sender_name(message)
                 timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                messages.append(f"[{timestamp}] {sender}: {message.text}")
+                messages.append(f"[{timestamp}] {sender}: {content}")
                 message_ids.append(message.id)
 
         await client.disconnect()
@@ -1175,6 +1331,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
 async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT_TYPE, limit: int):
     """Perform search export with a preset limit (called from callback buttons)."""
     user_id = update.effective_user.id
+    transcribe = context.user_data.get('transcribe_voice', False)
 
     try:
         selected_chat = context.user_data.get('selected_chat')
@@ -1197,26 +1354,30 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
         # Export messages
         messages = []
         message_ids = []
+        voice_count = 0
+        transcribed_count = 0
 
         async for message in client.iter_messages(selected_chat['id'], limit=limit):
-            if message.text:
-                sender = "Unknown"
-                if message.sender:
-                    if isinstance(message.sender, TelethonUser):
-                        sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
-                        if not sender:
-                            sender = f"User_{message.sender.id}"
-                    else:
-                        sender = getattr(message.sender, 'title', 'Unknown')
+            transcription = None
 
+            # Transcribe voice messages if enabled
+            if transcribe and is_voice_message(message):
+                voice_count += 1
+                transcription = await transcribe_voice(client, message)
+                if transcription:
+                    transcribed_count += 1
+
+            content = format_message_content(message, transcription)
+            if content:
+                sender = get_sender_name(message)
                 timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                messages.append(f"[{timestamp}] {sender}: {message.text}")
+                messages.append(f"[{timestamp}] {sender}: {content}")
                 message_ids.append(message.id)
 
         await client.disconnect()
 
         if not messages:
-            await update.effective_chat.send_message("❌ No text messages found in this chat")
+            await update.effective_chat.send_message("❌ No messages found in this chat")
             return
 
         # Reverse to chronological order
@@ -1232,11 +1393,15 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
             f.write(f"Chat: {selected_chat['name']}\n")
             f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Export type: Full export\n")
+            if transcribe:
+                f.write(f"Voice transcription: {transcribed_count}/{voice_count} transcribed\n")
             f.write(f"Total messages: {len(messages)}\n")
             f.write("=" * 80 + "\n\n")
             f.write("\n".join(messages))
 
         caption = f"✅ Full export of *{selected_chat['name']}* - {len(messages)} messages"
+        if transcribe and voice_count > 0:
+            caption += f"\n🎤 Transcribed {transcribed_count}/{voice_count} voice messages"
 
         # Send file
         with open(filepath, 'rb') as f:
@@ -1324,34 +1489,20 @@ async def search_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
         if is_incremental:
             # Incremental export: get only messages newer than last_message_id
             async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
-                if message.text:
-                    sender = "Unknown"
-                    if message.sender:
-                        if isinstance(message.sender, TelethonUser):
-                            sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
-                            if not sender:
-                                sender = f"User_{message.sender.id}"
-                        else:
-                            sender = getattr(message.sender, 'title', 'Unknown')
-
+                content = format_message_content(message)
+                if content:
+                    sender = get_sender_name(message)
                     timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                    messages.append(f"[{timestamp}] {sender}: {message.text}")
+                    messages.append(f"[{timestamp}] {sender}: {content}")
                     message_ids.append(message.id)
         else:
             # First export: get up to limit messages
             async for message in client.iter_messages(selected_chat['id'], limit=limit):
-                if message.text:
-                    sender = "Unknown"
-                    if message.sender:
-                        if isinstance(message.sender, TelethonUser):
-                            sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
-                            if not sender:
-                                sender = f"User_{message.sender.id}"
-                        else:
-                            sender = getattr(message.sender, 'title', 'Unknown')
-
+                content = format_message_content(message)
+                if content:
+                    sender = get_sender_name(message)
                     timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                    messages.append(f"[{timestamp}] {sender}: {message.text}")
+                    messages.append(f"[{timestamp}] {sender}: {content}")
                     message_ids.append(message.id)
 
         await client.disconnect()
@@ -1364,7 +1515,7 @@ async def search_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
                     parse_mode=ParseMode.MARKDOWN
                 )
             else:
-                await update.message.reply_text("❌ No text messages found in this chat")
+                await update.message.reply_text("❌ No messages found in this chat")
             return
 
         # Reverse to chronological order

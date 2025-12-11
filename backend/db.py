@@ -5,7 +5,7 @@ Handles users table and pending_logins table using SQLAlchemy.
 import os
 import time
 from typing import Optional
-from sqlalchemy import create_engine, Column, Integer, Text, Boolean
+from sqlalchemy import create_engine, Column, Integer, BigInteger, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from backend.crypto_utils import encrypt, decrypt
@@ -55,8 +55,8 @@ class ChatProgress(Base):
     """
     __tablename__ = "chat_progress"
 
-    user_id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(BigInteger, primary_key=True, index=True)
+    chat_id = Column(BigInteger, primary_key=True, index=True)
     chat_type = Column(Text, primary_key=True)  # 'user', 'chat', or 'channel'
     last_message_id = Column(Integer, nullable=False)
     updated_at = Column(Integer, default=lambda: int(time.time()))
