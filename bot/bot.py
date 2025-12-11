@@ -504,7 +504,8 @@ async def export_select_chat(update: Update, context: ContextTypes.DEFAULT_TYPE)
             # Chat was already exported - show options
             keyboard = [
                 [InlineKeyboardButton("📥 Only new messages", callback_data="export_mode_incremental")],
-                [InlineKeyboardButton("🔄 Export all again", callback_data="export_mode_full")]
+                [InlineKeyboardButton("🔄 Export all again", callback_data="export_mode_full")],
+                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data="export_mode_all_max")]
             ]
             await update.message.reply_text(
                 f"📊 Selected: *{selected_chat['name']}*\n\n"
@@ -514,11 +515,15 @@ async def export_select_chat(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return ENTERING_LIMIT
         else:
-            # First export - ask for message limit
+            # First export - show options with quick button
+            keyboard = [
+                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data="export_mode_all_max")],
+                [InlineKeyboardButton("⚙️ Custom amount", callback_data="export_mode_custom")]
+            ]
             await update.message.reply_text(
                 f"📊 Selected: *{selected_chat['name']}*\n\n"
-                "How many messages to export? (Default: 1000, Max: 10000)\n"
-                "Reply with a number or /cancel",
+                "How many messages to export?",
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.MARKDOWN
             )
             return ENTERING_LIMIT
@@ -560,6 +565,29 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 "How many messages to export? (Default: 1000, Max: 10000)\n"
                 "Reply with a number or /cancel",
                 parse_mode=ParseMode.MARKDOWN
+            )
+            return ENTERING_LIMIT
+
+        elif callback_data == "export_mode_all_max":
+            # User chose "export all (10000)"
+            context.user_data['export_mode'] = 'full'
+            context.user_data['export_limit'] = 10000
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"⏳ Exporting all messages from *{selected_chat['name']}* (up to 10000)...\n"
+                "This may take a while.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            # Simulate user input with limit 10000
+            update.message = type('obj', (object,), {'text': '10000'})()
+            await export_do_export(update, context)
+            return ConversationHandler.END
+
+        elif callback_data == "export_mode_custom":
+            # User chose "custom amount"
+            await query.edit_message_text(
+                "How many messages to export? (Default: 1000, Max: 10000)\n"
+                "Reply with a number or /cancel"
             )
             return ENTERING_LIMIT
 
@@ -691,9 +719,10 @@ async def export_do_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = selected_chat['chat_id']
         chat_type = selected_chat['chat_type']
 
-        # Check for existing progress
+        # Check for existing progress and user's choice
         last_message_id = db.get_chat_progress(user_id, chat_id, chat_type)
-        is_incremental = last_message_id is not None
+        export_mode = context.user_data.get('export_mode', 'full')
+        is_incremental = (last_message_id is not None and export_mode == 'incremental')
 
         if is_incremental:
             await update.message.reply_text(
@@ -857,7 +886,8 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
             # Chat was already exported - show options
             keyboard = [
                 [InlineKeyboardButton("📥 Only new messages", callback_data=f"search_export_mode_incremental_{index}")],
-                [InlineKeyboardButton("🔄 Export all again", callback_data=f"search_export_mode_full_{index}")]
+                [InlineKeyboardButton("🔄 Export all again", callback_data=f"search_export_mode_full_{index}")],
+                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data=f"search_export_mode_all_max_{index}")]
             ]
             await query.edit_message_text(
                 f"📊 Selected: *{selected_chat['name']}*\n\n"
@@ -866,14 +896,18 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
                 parse_mode=ParseMode.MARKDOWN
             )
         else:
-            # First export - ask for message limit
-            context.user_data['awaiting_search_export_limit'] = True
+            # First export - show options with quick button
+            keyboard = [
+                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data=f"search_export_mode_all_max_{index}")],
+                [InlineKeyboardButton("⚙️ Custom amount", callback_data=f"search_export_mode_custom_{index}")]
+            ]
             await query.edit_message_text(
                 f"📊 Selected: *{selected_chat['name']}*\n\n"
-                "How many messages to export? (Default: 1000, Max: 10000)\n"
-                "Reply with a number or /cancel",
+                "How many messages to export?",
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.MARKDOWN
             )
+            context.user_data['awaiting_search_export_limit'] = True
 
     except Exception as e:
         logger.error(f"Error in search_export_callback: {str(e)}", exc_info=True)
@@ -913,6 +947,30 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
                 "How many messages to export? (Default: 1000, Max: 10000)\n"
                 "Reply with a number or /cancel",
                 parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif callback_data.startswith("search_export_mode_all_max_"):
+            # User chose "export all (10000)"
+            context.user_data['export_mode'] = 'full'
+            context.user_data['awaiting_search_export_limit'] = False
+            context.user_data['export_limit'] = 10000
+
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"⏳ Exporting all messages from *{selected_chat['name']}* (up to 10000)...\n"
+                "This may take a while.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            # Simulate user input with limit 10000
+            update.message = type('obj', (object,), {'text': '10000'})()
+            await search_export_limit(update, context)
+
+        elif callback_data.startswith("search_export_mode_custom_"):
+            # User chose "custom amount"
+            context.user_data['awaiting_search_export_limit'] = True
+            await query.edit_message_text(
+                "How many messages to export? (Default: 1000, Max: 10000)\n"
+                "Reply with a number or /cancel"
             )
 
     except Exception as e:
@@ -1046,9 +1104,10 @@ async def search_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
         chat_id = selected_chat['chat_id']
         chat_type = selected_chat['chat_type']
 
-        # Check for existing progress
+        # Check for existing progress and user's choice
         last_message_id = db.get_chat_progress(user_id, chat_id, chat_type)
-        is_incremental = last_message_id is not None
+        export_mode = context.user_data.get('export_mode', 'full')
+        is_incremental = (last_message_id is not None and export_mode == 'incremental')
 
         if is_incremental:
             await update.message.reply_text(
