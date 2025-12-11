@@ -578,9 +578,8 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 "This may take a while.",
                 parse_mode=ParseMode.MARKDOWN
             )
-            # Simulate user input with limit 10000
-            update.message = type('obj', (object,), {'text': '10000'})()
-            await export_do_export(update, context)
+            # Export with preset limit
+            await export_do_export_with_limit(update, context, 10000)
             return ConversationHandler.END
 
         elif callback_data == "export_mode_custom":
@@ -851,6 +850,102 @@ async def export_do_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 
+async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFAULT_TYPE, limit: int):
+    """Perform export with a preset limit (called from callback buttons)."""
+    user_id = update.effective_user.id
+
+    try:
+        selected_chat = context.user_data.get('selected_chat')
+        if not selected_chat:
+            await update.effective_chat.send_message("❌ Chat selection lost. Please start over with /export")
+            return ConversationHandler.END
+
+        # Get chat identity for progress tracking
+        chat_id = selected_chat['chat_id']
+        chat_type = selected_chat['chat_type']
+
+        # Get client
+        client = get_user_client(user_id)
+        if not client:
+            await update.effective_chat.send_message("❌ Session not found")
+            return ConversationHandler.END
+
+        await client.connect()
+
+        # Export messages
+        messages = []
+        message_ids = []
+
+        async for message in client.iter_messages(selected_chat['id'], limit=limit):
+            if message.text:
+                sender = "Unknown"
+                if message.sender:
+                    if isinstance(message.sender, TelethonUser):
+                        sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
+                        if not sender:
+                            sender = f"User_{message.sender.id}"
+                    else:
+                        sender = getattr(message.sender, 'title', 'Unknown')
+
+                timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
+                messages.append(f"[{timestamp}] {sender}: {message.text}")
+                message_ids.append(message.id)
+
+        await client.disconnect()
+
+        if not messages:
+            await update.effective_chat.send_message("❌ No text messages found in this chat")
+            return ConversationHandler.END
+
+        # Reverse to chronological order
+        messages.reverse()
+
+        # Create file
+        filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        filename = "".join(c for c in filename if c.isalnum() or c in ('_', '-', '.'))
+
+        filepath = f"/tmp/{filename}"
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f"Chat: {selected_chat['name']}\n")
+            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Export type: Full export\n")
+            f.write(f"Total messages: {len(messages)}\n")
+            f.write("=" * 80 + "\n\n")
+            f.write("\n".join(messages))
+
+        caption = f"✅ Full export of *{selected_chat['name']}* - {len(messages)} messages"
+
+        # Send file
+        with open(filepath, 'rb') as f:
+            await update.effective_chat.send_document(
+                document=f,
+                filename=filename,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        # Clean up file
+        os.remove(filepath)
+
+        # Save progress
+        if message_ids:
+            new_last_message_id = max(message_ids)
+            db.upsert_chat_progress(user_id, chat_id, chat_type, new_last_message_id)
+            logger.info(f"Updated chat progress for user {user_id}, chat {chat_id}: last_message_id={new_last_message_id}")
+
+        return ConversationHandler.END
+
+    except Exception as e:
+        logger.error(f"Error during export: {str(e)}", exc_info=True)
+        await update.effective_chat.send_message(f"❌ Export failed: {str(e)}")
+        try:
+            await client.disconnect()
+        except:
+            pass
+        return ConversationHandler.END
+
+
 async def export_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel export conversation."""
     await update.message.reply_text("Export cancelled.")
@@ -961,9 +1056,8 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
                 "This may take a while.",
                 parse_mode=ParseMode.MARKDOWN
             )
-            # Simulate user input with limit 10000
-            update.message = type('obj', (object,), {'text': '10000'})()
-            await search_export_limit(update, context)
+            # Export with preset limit
+            await search_export_with_limit(update, context, 10000)
 
         elif callback_data.startswith("search_export_mode_custom_"):
             # User chose "custom amount"
@@ -1072,6 +1166,99 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
             await update.callback_query.edit_message_text(f"❌ Export failed: {str(e)}")
         except:
             await update.effective_chat.send_message(f"❌ Export failed: {str(e)}")
+        try:
+            await client.disconnect()
+        except:
+            pass
+
+
+async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT_TYPE, limit: int):
+    """Perform search export with a preset limit (called from callback buttons)."""
+    user_id = update.effective_user.id
+
+    try:
+        selected_chat = context.user_data.get('selected_chat')
+        if not selected_chat:
+            await update.effective_chat.send_message("❌ Chat selection lost. Please search again.")
+            return
+
+        # Get chat identity for progress tracking
+        chat_id = selected_chat['chat_id']
+        chat_type = selected_chat['chat_type']
+
+        # Get client
+        client = get_user_client(user_id)
+        if not client:
+            await update.effective_chat.send_message("❌ Session not found")
+            return
+
+        await client.connect()
+
+        # Export messages
+        messages = []
+        message_ids = []
+
+        async for message in client.iter_messages(selected_chat['id'], limit=limit):
+            if message.text:
+                sender = "Unknown"
+                if message.sender:
+                    if isinstance(message.sender, TelethonUser):
+                        sender = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
+                        if not sender:
+                            sender = f"User_{message.sender.id}"
+                    else:
+                        sender = getattr(message.sender, 'title', 'Unknown')
+
+                timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
+                messages.append(f"[{timestamp}] {sender}: {message.text}")
+                message_ids.append(message.id)
+
+        await client.disconnect()
+
+        if not messages:
+            await update.effective_chat.send_message("❌ No text messages found in this chat")
+            return
+
+        # Reverse to chronological order
+        messages.reverse()
+
+        # Create file
+        filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        filename = "".join(c for c in filename if c.isalnum() or c in ('_', '-', '.'))
+
+        filepath = f"/tmp/{filename}"
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f"Chat: {selected_chat['name']}\n")
+            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Export type: Full export\n")
+            f.write(f"Total messages: {len(messages)}\n")
+            f.write("=" * 80 + "\n\n")
+            f.write("\n".join(messages))
+
+        caption = f"✅ Full export of *{selected_chat['name']}* - {len(messages)} messages"
+
+        # Send file
+        with open(filepath, 'rb') as f:
+            await update.effective_chat.send_document(
+                document=f,
+                filename=filename,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        # Clean up file
+        os.remove(filepath)
+
+        # Save progress
+        if message_ids:
+            new_last_message_id = max(message_ids)
+            db.upsert_chat_progress(user_id, chat_id, chat_type, new_last_message_id)
+            logger.info(f"Updated chat progress for user {user_id}, chat {chat_id}: last_message_id={new_last_message_id}")
+
+    except Exception as e:
+        logger.error(f"Error during search export: {str(e)}", exc_info=True)
+        await update.effective_chat.send_message(f"❌ Export failed: {str(e)}")
         try:
             await client.disconnect()
         except:
