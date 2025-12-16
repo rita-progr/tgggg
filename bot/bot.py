@@ -221,17 +221,17 @@ def get_sender_name(message) -> str:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
     keyboard = [[
-        InlineKeyboardButton("🔐 Login via WebApp", web_app=WebAppInfo(url=WEBAPP_URL))
+        InlineKeyboardButton("🔐 Войти через WebApp", web_app=WebAppInfo(url=WEBAPP_URL))
     ]]
 
     await update.message.reply_text(
-        "👋 Welcome to Telegram Chat Export Bot!\n\n"
-        "I can help you export your Telegram chat history to text files.\n\n"
-        "To get started:\n"
-        "1️⃣ Click the button below to authenticate\n"
-        "2️⃣ Use /export to select and export a chat\n"
-        "3️⃣ Or use /search to find a specific chat\n\n"
-        "Type /help for more information.",
+        "👋 Привет! Это бот для экспорта истории чатов Telegram.\n\n"
+        "Я помогу сохранить переписку в текстовые файлы.\n\n"
+        "Для начала:\n"
+        "1️⃣ Нажми кнопку ниже для авторизации\n"
+        "2️⃣ Используй /export для выбора и экспорта чата\n"
+        "3️⃣ Или /search для поиска по названию\n\n"
+        "Напиши /help для справки.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -239,20 +239,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /help command."""
     await update.message.reply_text(
-        "📖 *Available Commands:*\n\n"
-        "/start - Start the bot\n"
-        "/login - Authenticate via WebApp\n"
-        "/status - Check your authentication status\n"
-        "/export - Browse and export chats\n"
-        "/search - Search for chats by name\n"
-        "/logout - Delete your session data\n"
-        "/help - Show this help message\n\n"
-        "*How to use:*\n"
-        "1. Click /login and authenticate through the web page\n"
-        "2. Use /export to browse and export your chats\n"
-        "3. Or use /search to find a specific chat\n\n"
-        "⚠️ *Important:* All authentication happens through the web interface. "
-        "I will never ask for codes or passwords in this chat.",
+        "📖 *Доступные команды:*\n\n"
+        "/start - Запустить бота\n"
+        "/login - Авторизоваться через WebApp\n"
+        "/status - Проверить статус авторизации\n"
+        "/export - Выбрать и экспортировать чат\n"
+        "/search - Поиск чата по названию\n"
+        "/logout - Выйти из аккаунта\n"
+        "/help - Показать эту справку\n\n"
+        "*Как пользоваться:*\n"
+        "1. Нажми /login и авторизуйся через веб-страницу\n"
+        "2. Используй /export для просмотра и экспорта чатов\n"
+        "3. Или /search для поиска конкретного чата\n\n"
+        "⚠️ *Важно:* Вся авторизация происходит через веб-интерфейс. "
+        "Я никогда не попрошу коды или пароли в этом чате.",
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -260,17 +260,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /login command - opens WebApp."""
     keyboard = [[
-        InlineKeyboardButton("🔐 Login via WebApp", web_app=WebAppInfo(url=WEBAPP_URL))
+        InlineKeyboardButton("🔐 Войти через WebApp", web_app=WebAppInfo(url=WEBAPP_URL))
     ]]
 
     await update.message.reply_text(
-        "🔐 *Authentication*\n\n"
-        "Click the button below to open the authentication page.\n\n"
-        "📝 *Steps:*\n"
-        "1️⃣ Enter your phone number\n"
-        "2️⃣ Enter the confirmation code\n"
-        "3️⃣ Enter 2FA password (if enabled)\n\n"
-        "⚠️ All sensitive data is entered in the web page, not in this chat.",
+        "🔐 *Авторизация*\n\n"
+        "Нажми кнопку ниже, чтобы открыть страницу авторизации.\n\n"
+        "📝 *Шаги:*\n"
+        "1️⃣ Введи номер телефона\n"
+        "2️⃣ Введи код подтверждения\n"
+        "3️⃣ Введи пароль 2FA (если включён)\n\n"
+        "⚠️ Все данные вводятся на веб-странице, не в этом чате.",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
     )
@@ -285,22 +285,22 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not has_session:
         await update.message.reply_text(
-            "❌ *Not authenticated*\n\n"
-            "You haven't logged in yet. Use /login to authenticate.",
+            "❌ *Не авторизован*\n\n"
+            "Ты ещё не вошёл в аккаунт. Используй /login для авторизации.",
             parse_mode=ParseMode.MARKDOWN
         )
         return
 
     if is_authenticated:
         await update.message.reply_text(
-            "✅ *Authenticated*\n\n"
-            "You are logged in and can use /list and /export commands.",
+            "✅ *Авторизован*\n\n"
+            "Ты вошёл в аккаунт и можешь использовать /export и /search.",
             parse_mode=ParseMode.MARKDOWN
         )
     else:
         await update.message.reply_text(
-            "⚠️ *Session exists but not authenticated*\n\n"
-            "Please try logging in again with /login",
+            "⚠️ *Сессия есть, но не авторизована*\n\n"
+            "Попробуй войти заново через /login",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -315,23 +315,23 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not search_query:
         await update.message.reply_text(
-            "📝 *Usage:* /search <chat name>\n\n"
-            "Example: /search Python\n"
-            "Example: /search John",
+            "📝 *Использование:* /search <название чата>\n\n"
+            "Пример: /search Python\n"
+            "Пример: /search Иван",
             parse_mode=ParseMode.MARKDOWN
         )
         return
 
     if not db.is_user_authenticated(user_id):
         await update.message.reply_text(
-            "❌ You need to authenticate first. Use /login"
+            "❌ Сначала нужно авторизоваться. Используй /login"
         )
         return
 
     client = get_user_client(user_id)
     if not client:
         await update.message.reply_text(
-            "❌ Session not found. Please use /login to authenticate."
+            "❌ Сессия не найдена. Используй /login для авторизации."
         )
         return
 
@@ -340,7 +340,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not await client.is_user_authorized():
             await update.message.reply_text(
-                "❌ Session expired. Please use /login to re-authenticate."
+                "❌ Сессия истекла. Используй /login для повторной авторизации."
             )
             await client.disconnect()
             return
@@ -354,7 +354,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not results:
             await update.message.reply_text(
-                f"❌ No chats found matching '{search_query}'"
+                f"❌ Чаты по запросу '{search_query}' не найдены"
             )
             return
 
@@ -374,13 +374,13 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Format results with buttons (limit to 10 for display)
         results_to_show = results[:10]
-        chat_list = [f"*Search Results for '{search_query}':* ({len(results)} found)\n"]
+        chat_list = [f"*Результаты поиска '{search_query}':* (найдено {len(results)})\n"]
         for i, dialog in enumerate(results_to_show, 1):
             chat_type = "👤" if dialog.is_user else "👥" if dialog.is_group else "📢"
             chat_list.append(f"{i}. {chat_type} {dialog.name}")
 
         if len(results) > 10:
-            chat_list.append(f"\n... and {len(results) - 10} more results")
+            chat_list.append(f"\n... и ещё {len(results) - 10}")
 
         chat_text = "\n".join(chat_list)
 
@@ -403,7 +403,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error searching chats: {str(e)}", exc_info=True)
         await update.message.reply_text(
-            f"❌ Error searching chats: {str(e)}"
+            f"❌ Ошибка поиска: {str(e)}"
         )
         try:
             await client.disconnect()
@@ -436,14 +436,14 @@ async def show_export_page(update: Update, context: ContextTypes.DEFAULT_TYPE, p
     # Navigation buttons
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"export_page_{page - 1}"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"export_page_{page - 1}"))
     nav_buttons.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="export_page_noop"))
     if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"export_page_{page + 1}"))
+        nav_buttons.append(InlineKeyboardButton("Далее ➡️", callback_data=f"export_page_{page + 1}"))
     if nav_buttons:
         keyboard.append(nav_buttons)
 
-    text = "*Select a chat to export:*\n\nUse /search to find a specific chat."
+    text = "*Выбери чат для экспорта:*\n\nИспользуй /search для поиска."
 
     if update.callback_query:
         await update.callback_query.edit_message_text(
@@ -465,14 +465,14 @@ async def export_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not db.is_user_authenticated(user_id):
         await update.message.reply_text(
-            "❌ You need to authenticate first. Use /login"
+            "❌ Сначала нужно авторизоваться. Используй /login"
         )
         return
 
     client = get_user_client(user_id)
     if not client:
         await update.message.reply_text(
-            "❌ Session not found. Please use /login to authenticate."
+            "❌ Сессия не найдена. Используй /login для авторизации."
         )
         return
 
@@ -481,19 +481,19 @@ async def export_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not await client.is_user_authorized():
             await update.message.reply_text(
-                "❌ Session expired. Please use /login to re-authenticate."
+                "❌ Сессия истекла. Используй /login для повторной авторизации."
             )
             await client.disconnect()
             return
 
-        await update.message.reply_text("📋 Fetching your chats...")
+        await update.message.reply_text("📋 Загружаю твои чаты...")
 
         # Get dialogs
         dialogs = await client.get_dialogs(limit=50)
         await client.disconnect()
 
         if not dialogs:
-            await update.message.reply_text("No chats found.")
+            await update.message.reply_text("Чаты не найдены.")
             return
 
         # Store dialogs in context
@@ -515,7 +515,7 @@ async def export_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except FloodWaitError as e:
         await update.message.reply_text(
-            f"⏳ Rate limit reached. Please wait {e.seconds} seconds and try again."
+            f"⏳ Лимит запросов. Подожди {e.seconds} сек. и попробуй снова."
         )
         try:
             await client.disconnect()
@@ -524,7 +524,7 @@ async def export_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Error starting export: {str(e)}", exc_info=True)
-        await update.message.reply_text(f"❌ Error: {str(e)}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
         try:
             await client.disconnect()
         except:
@@ -555,7 +555,7 @@ async def export_chat_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         dialogs = context.user_data.get('export_dialogs', [])
 
         if index < 0 or index >= len(dialogs):
-            await query.edit_message_text("❌ Chat not found")
+            await query.edit_message_text("❌ Чат не найден")
             return
 
         selected_chat = dialogs[index]
@@ -569,36 +569,36 @@ async def export_chat_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if last_message_id:
             # Chat was already exported - show options
             keyboard = [
-                [InlineKeyboardButton("📥 Only new messages", callback_data="export_mode_incremental")],
-                [InlineKeyboardButton("🔄 Export all again", callback_data="export_mode_full")],
-                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data="export_mode_all_max")]
+                [InlineKeyboardButton("📥 Только новые", callback_data="export_mode_incremental")],
+                [InlineKeyboardButton("🔄 Экспорт заново", callback_data="export_mode_full")],
+                [InlineKeyboardButton("⬇️ Все сообщения (10000)", callback_data="export_mode_all_max")]
             ]
             if TRANSCRIPTION_AVAILABLE:
-                keyboard.append([InlineKeyboardButton("🎤 Export + transcribe", callback_data="export_mode_all_max_transcribe")])
+                keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data="export_mode_all_max_transcribe")])
             await query.edit_message_text(
-                f"📊 Selected: *{selected_chat['name']}*\n\n"
-                "This chat was previously exported. Choose an option:",
+                f"📊 Выбран: *{selected_chat['name']}*\n\n"
+                "Этот чат уже экспортировался. Выбери опцию:",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.MARKDOWN
             )
         else:
             # First export - show options
             keyboard = [
-                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data="export_mode_all_max")]
+                [InlineKeyboardButton("⬇️ Все сообщения (10000)", callback_data="export_mode_all_max")]
             ]
             if TRANSCRIPTION_AVAILABLE:
-                keyboard.append([InlineKeyboardButton("🎤 Export + transcribe", callback_data="export_mode_all_max_transcribe")])
-            keyboard.append([InlineKeyboardButton("⚙️ Custom amount", callback_data="export_mode_custom")])
+                keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data="export_mode_all_max_transcribe")])
+            keyboard.append([InlineKeyboardButton("⚙️ Указать количество", callback_data="export_mode_custom")])
             await query.edit_message_text(
-                f"📊 Selected: *{selected_chat['name']}*\n\n"
-                "How many messages to export?",
+                f"📊 Выбран: *{selected_chat['name']}*\n\n"
+                "Сколько сообщений экспортировать?",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.MARKDOWN
             )
 
     except Exception as e:
         logger.error(f"Error in export_chat_callback: {str(e)}", exc_info=True)
-        await query.edit_message_text(f"❌ Error: {str(e)}")
+        await query.edit_message_text(f"❌ Ошибка: {str(e)}")
 
 
 async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -614,8 +614,8 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data['export_mode'] = 'incremental'
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
-                f"⏳ Exporting new messages from *{selected_chat['name']}*...\n"
-                "This may take a while.",
+                f"⏳ Экспортирую новые сообщения из *{selected_chat['name']}*...\n"
+                "Это может занять некоторое время.",
                 parse_mode=ParseMode.MARKDOWN
             )
             await export_do_incremental(update, context)
@@ -626,9 +626,9 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data['awaiting_export_limit'] = True
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
-                f"📊 Selected: *{selected_chat['name']}*\n\n"
-                "How many messages to export? (Default: 1000, Max: 10000)\n"
-                "Reply with a number",
+                f"📊 Выбран: *{selected_chat['name']}*\n\n"
+                "Сколько сообщений экспортировать? (По умолчанию: 1000, Макс: 10000)\n"
+                "Напиши число",
                 parse_mode=ParseMode.MARKDOWN
             )
 
@@ -638,8 +638,8 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data['transcribe_voice'] = False
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
-                f"⏳ Exporting all messages from *{selected_chat['name']}* (up to 10000)...\n"
-                "This may take a while.",
+                f"⏳ Экспортирую все сообщения из *{selected_chat['name']}* (до 10000)...\n"
+                "Это может занять некоторое время.",
                 parse_mode=ParseMode.MARKDOWN
             )
             await export_do_export_with_limit(update, context, 10000)
@@ -650,9 +650,9 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data['transcribe_voice'] = True
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
-                f"⏳ Exporting all messages from *{selected_chat['name']}* (up to 10000)...\n"
-                "🎤 Voice messages will be transcribed.\n"
-                "This may take a while.",
+                f"⏳ Экспортирую все сообщения из *{selected_chat['name']}* (до 10000)...\n"
+                "🎤 Голосовые сообщения будут транскрибированы.\n"
+                "Это может занять некоторое время.",
                 parse_mode=ParseMode.MARKDOWN
             )
             await export_do_export_with_limit(update, context, 10000)
@@ -661,13 +661,13 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             # User chose "custom amount"
             context.user_data['awaiting_export_limit'] = True
             await query.edit_message_text(
-                "How many messages to export? (Default: 1000, Max: 10000)\n"
-                "Reply with a number"
+                "Сколько сообщений экспортировать? (По умолчанию: 1000, Макс: 10000)\n"
+                "Напиши число"
             )
 
     except Exception as e:
         logger.error(f"Error in export_mode_callback: {str(e)}", exc_info=True)
-        await query.edit_message_text(f"❌ Error: {str(e)}")
+        await query.edit_message_text(f"❌ Ошибка: {str(e)}")
 
 
 async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -677,7 +677,7 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         selected_chat = context.user_data.get('selected_chat')
         if not selected_chat:
-            await update.effective_chat.send_message("❌ Chat selection lost. Please try again.")
+            await update.effective_chat.send_message("❌ Выбор чата потерян. Попробуй снова.")
             return
 
         chat_id = selected_chat['chat_id']
@@ -689,7 +689,7 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
         # Get client
         client = get_user_client(user_id)
         if not client:
-            await update.effective_chat.send_message("❌ Session not found")
+            await update.effective_chat.send_message("❌ Сессия не найдена")
             return
 
         await client.connect()
@@ -711,7 +711,7 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
         # Check if there are any new messages
         if not messages:
             await update.effective_chat.send_message(
-                f"⚠️ No new messages in *{selected_chat['name']}* since last export.",
+                f"⚠️ Нет новых сообщений в *{selected_chat['name']}* с последнего экспорта.",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -726,10 +726,10 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
         filepath = f"/tmp/{filename}"
 
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(f"Chat: {selected_chat['name']}\n")
-            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Export type: Incremental (new messages only)\n")
-            f.write(f"Total messages: {len(messages)}\n")
+            f.write(f"Чат: {selected_chat['name']}\n")
+            f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Тип экспорта: Инкрементальный (только новые сообщения)\n")
+            f.write(f"Всего сообщений: {len(messages)}\n")
             f.write("=" * 80 + "\n\n")
             f.write("\n".join(messages))
 
@@ -738,7 +738,7 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
             await update.effective_chat.send_document(
                 document=f,
                 filename=filename,
-                caption=f"✅ Exported {len(messages)} new messages from *{selected_chat['name']}* (since last export)",
+                caption=f"✅ Экспортировано {len(messages)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)",
                 parse_mode=ParseMode.MARKDOWN
             )
 
@@ -753,7 +753,7 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
 
     except Exception as e:
         logger.error(f"Error during incremental export: {str(e)}", exc_info=True)
-        await update.effective_chat.send_message(f"❌ Export failed: {str(e)}")
+        await update.effective_chat.send_message(f"❌ Ошибка экспорта: {str(e)}")
         try:
             await client.disconnect()
         except:
@@ -783,22 +783,22 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         selected_chat = context.user_data.get('selected_chat')
         if not selected_chat:
-            await update.message.reply_text("❌ Chat selection lost. Please try again.")
+            await update.message.reply_text("❌ Выбор чата потерян. Попробуй снова.")
             return
 
         chat_id = selected_chat['chat_id']
         chat_type = selected_chat['chat_type']
 
         await update.message.reply_text(
-            f"⏳ Exporting up to {limit} messages from *{selected_chat['name']}*...\n"
-            "This may take a while.",
+            f"⏳ Экспортирую до {limit} сообщений из *{selected_chat['name']}*...\n"
+            "Это может занять некоторое время.",
             parse_mode=ParseMode.MARKDOWN
         )
 
         # Get client
         client = get_user_client(user_id)
         if not client:
-            await update.message.reply_text("❌ Session not found")
+            await update.message.reply_text("❌ Сессия не найдена")
             return
 
         await client.connect()
@@ -818,7 +818,7 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
         await client.disconnect()
 
         if not messages:
-            await update.message.reply_text("❌ No messages found in this chat")
+            await update.message.reply_text("❌ Сообщения в этом чате не найдены")
             return
 
         # Reverse to chronological order
@@ -831,14 +831,14 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
         filepath = f"/tmp/{filename}"
 
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(f"Chat: {selected_chat['name']}\n")
-            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Export type: Full export\n")
-            f.write(f"Total messages: {len(messages)}\n")
+            f.write(f"Чат: {selected_chat['name']}\n")
+            f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Тип экспорта: Полный экспорт\n")
+            f.write(f"Всего сообщений: {len(messages)}\n")
             f.write("=" * 80 + "\n\n")
             f.write("\n".join(messages))
 
-        caption = f"✅ Full export of *{selected_chat['name']}* - {len(messages)} messages"
+        caption = f"✅ Полный экспорт *{selected_chat['name']}* - {len(messages)} сообщений"
 
         # Send file
         with open(filepath, 'rb') as f:
@@ -860,7 +860,7 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     except Exception as e:
         logger.error(f"Error during export: {str(e)}", exc_info=True)
-        await update.message.reply_text(f"❌ Export failed: {str(e)}")
+        await update.message.reply_text(f"❌ Ошибка экспорта: {str(e)}")
         try:
             await client.disconnect()
         except:
@@ -875,7 +875,7 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
     try:
         selected_chat = context.user_data.get('selected_chat')
         if not selected_chat:
-            await update.effective_chat.send_message("❌ Chat selection lost. Please try again.")
+            await update.effective_chat.send_message("❌ Выбор чата потерян. Попробуй снова.")
             return
 
         # Get chat identity for progress tracking
@@ -885,7 +885,7 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
         # Get client
         client = get_user_client(user_id)
         if not client:
-            await update.effective_chat.send_message("❌ Session not found")
+            await update.effective_chat.send_message("❌ Сессия не найдена")
             return
 
         await client.connect()
@@ -916,7 +916,7 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
         await client.disconnect()
 
         if not messages:
-            await update.effective_chat.send_message("❌ No messages found in this chat")
+            await update.effective_chat.send_message("❌ Сообщения в этом чате не найдены")
             return
 
         # Reverse to chronological order
@@ -929,18 +929,18 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
         filepath = f"/tmp/{filename}"
 
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(f"Chat: {selected_chat['name']}\n")
-            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Export type: Full export\n")
+            f.write(f"Чат: {selected_chat['name']}\n")
+            f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Тип экспорта: Полный экспорт\n")
             if transcribe:
-                f.write(f"Voice transcription: {transcribed_count}/{voice_count} transcribed\n")
-            f.write(f"Total messages: {len(messages)}\n")
+                f.write(f"Транскрипция голосовых: {transcribed_count}/{voice_count} транскрибировано\n")
+            f.write(f"Всего сообщений: {len(messages)}\n")
             f.write("=" * 80 + "\n\n")
             f.write("\n".join(messages))
 
-        caption = f"✅ Full export of *{selected_chat['name']}* - {len(messages)} messages"
+        caption = f"✅ Полный экспорт *{selected_chat['name']}* - {len(messages)} сообщений"
         if transcribe and voice_count > 0:
-            caption += f"\n🎤 Transcribed {transcribed_count}/{voice_count} voice messages"
+            caption += f"\n🎤 Транскрибировано {transcribed_count}/{voice_count} голосовых сообщений"
 
         # Send file
         with open(filepath, 'rb') as f:
@@ -962,7 +962,7 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
 
     except Exception as e:
         logger.error(f"Error during export: {str(e)}", exc_info=True)
-        await update.effective_chat.send_message(f"❌ Export failed: {str(e)}")
+        await update.effective_chat.send_message(f"❌ Ошибка экспорта: {str(e)}")
         try:
             await client.disconnect()
         except:
@@ -982,7 +982,7 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
         search_results = context.user_data.get('search_results', [])
 
         if index < 0 or index >= len(search_results):
-            await query.edit_message_text("❌ Chat not found")
+            await query.edit_message_text("❌ Чат не найден")
             return
 
         # Store selected chat
@@ -997,29 +997,29 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
         if last_message_id:
             # Chat was already exported - show options
             keyboard = [
-                [InlineKeyboardButton("📥 Only new messages", callback_data=f"search_export_mode_incremental_{index}")],
-                [InlineKeyboardButton("🔄 Export all again", callback_data=f"search_export_mode_full_{index}")],
-                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data=f"search_export_mode_all_max_{index}")]
+                [InlineKeyboardButton("📥 Только новые", callback_data=f"search_export_mode_incremental_{index}")],
+                [InlineKeyboardButton("🔄 Экспорт заново", callback_data=f"search_export_mode_full_{index}")],
+                [InlineKeyboardButton("⬇️ Все сообщения (10000)", callback_data=f"search_export_mode_all_max_{index}")]
             ]
             if TRANSCRIPTION_AVAILABLE:
-                keyboard.append([InlineKeyboardButton("🎤 Export all + transcribe", callback_data=f"search_export_mode_transcribe_{index}")])
+                keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data=f"search_export_mode_transcribe_{index}")])
             await query.edit_message_text(
-                f"📊 Selected: *{selected_chat['name']}*\n\n"
-                "This chat was previously exported. Choose an option:",
+                f"📊 Выбран: *{selected_chat['name']}*\n\n"
+                "Этот чат уже экспортировался. Выбери опцию:",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.MARKDOWN
             )
         else:
             # First export - show options with quick button
             keyboard = [
-                [InlineKeyboardButton("⬇️ Export all (10000)", callback_data=f"search_export_mode_all_max_{index}")]
+                [InlineKeyboardButton("⬇️ Все сообщения (10000)", callback_data=f"search_export_mode_all_max_{index}")]
             ]
             if TRANSCRIPTION_AVAILABLE:
-                keyboard.append([InlineKeyboardButton("🎤 Export all + transcribe", callback_data=f"search_export_mode_transcribe_{index}")])
-            keyboard.append([InlineKeyboardButton("⚙️ Custom amount", callback_data=f"search_export_mode_custom_{index}")])
+                keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data=f"search_export_mode_transcribe_{index}")])
+            keyboard.append([InlineKeyboardButton("⚙️ Указать количество", callback_data=f"search_export_mode_custom_{index}")])
             await query.edit_message_text(
-                f"📊 Selected: *{selected_chat['name']}*\n\n"
-                "How many messages to export?",
+                f"📊 Выбран: *{selected_chat['name']}*\n\n"
+                "Сколько сообщений экспортировать?",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -1027,7 +1027,7 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     except Exception as e:
         logger.error(f"Error in search_export_callback: {str(e)}", exc_info=True)
-        await query.edit_message_text(f"❌ Error: {str(e)}")
+        await query.edit_message_text(f"❌ Ошибка: {str(e)}")
 
 
 async def search_export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1045,8 +1045,8 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
 
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
-                f"⏳ Exporting new messages from *{selected_chat['name']}*...\n"
-                "This may take a while.",
+                f"⏳ Экспортирую новые сообщения из *{selected_chat['name']}*...\n"
+                "Это может занять некоторое время.",
                 parse_mode=ParseMode.MARKDOWN
             )
             # Trigger the export immediately without waiting for user input
@@ -1059,9 +1059,9 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
 
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
-                f"📊 Selected: *{selected_chat['name']}*\n\n"
-                "How many messages to export? (Default: 1000, Max: 10000)\n"
-                "Reply with a number or /cancel",
+                f"📊 Выбран: *{selected_chat['name']}*\n\n"
+                "Сколько сообщений экспортировать? (По умолчанию: 1000, Макс: 10000)\n"
+                "Напиши число",
                 parse_mode=ParseMode.MARKDOWN
             )
 
@@ -1074,8 +1074,8 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
 
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
-                f"⏳ Exporting all messages from *{selected_chat['name']}* (up to 10000)...\n"
-                "This may take a while.",
+                f"⏳ Экспортирую все сообщения из *{selected_chat['name']}* (до 10000)...\n"
+                "Это может занять некоторое время.",
                 parse_mode=ParseMode.MARKDOWN
             )
             # Export with preset limit
@@ -1090,9 +1090,9 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
 
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
-                f"⏳ Exporting all messages from *{selected_chat['name']}* (up to 10000)...\n"
-                "🎤 Voice messages will be transcribed.\n"
-                "This may take a while.",
+                f"⏳ Экспортирую все сообщения из *{selected_chat['name']}* (до 10000)...\n"
+                "🎤 Голосовые сообщения будут транскрибированы.\n"
+                "Это может занять некоторое время.",
                 parse_mode=ParseMode.MARKDOWN
             )
             # Export with preset limit and transcription
@@ -1102,13 +1102,13 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
             # User chose "custom amount"
             context.user_data['awaiting_search_export_limit'] = True
             await query.edit_message_text(
-                "How many messages to export? (Default: 1000, Max: 10000)\n"
-                "Reply with a number or /cancel"
+                "Сколько сообщений экспортировать? (По умолчанию: 1000, Макс: 10000)\n"
+                "Напиши число"
             )
 
     except Exception as e:
         logger.error(f"Error in search_export_mode_callback: {str(e)}", exc_info=True)
-        await query.edit_message_text(f"❌ Error: {str(e)}")
+        await query.edit_message_text(f"❌ Ошибка: {str(e)}")
 
 
 async def search_export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1118,7 +1118,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
     try:
         selected_chat = context.user_data.get('selected_chat')
         if not selected_chat:
-            await update.callback_query.edit_message_text("❌ Chat selection lost. Please search again.")
+            await update.callback_query.edit_message_text("❌ Выбор чата потерян. Попробуй снова.")
             return
 
         chat_id = selected_chat['chat_id']
@@ -1130,7 +1130,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         # Get client
         client = get_user_client(user_id)
         if not client:
-            await update.callback_query.edit_message_text("❌ Session not found")
+            await update.callback_query.edit_message_text("❌ Сессия не найдена")
             return
 
         await client.connect()
@@ -1152,7 +1152,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         # Check if there are any new messages
         if not messages:
             await update.callback_query.edit_message_text(
-                f"⚠️ No new messages in *{selected_chat['name']}* since last export.",
+                f"⚠️ Нет новых сообщений в *{selected_chat['name']}* с последнего экспорта.",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -1167,10 +1167,10 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         filepath = f"/tmp/{filename}"
 
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(f"Chat: {selected_chat['name']}\n")
-            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Export type: Incremental (new messages only)\n")
-            f.write(f"Total messages: {len(messages)}\n")
+            f.write(f"Чат: {selected_chat['name']}\n")
+            f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Тип экспорта: Инкрементальный (только новые сообщения)\n")
+            f.write(f"Всего сообщений: {len(messages)}\n")
             f.write("=" * 80 + "\n\n")
             f.write("\n".join(messages))
 
@@ -1179,7 +1179,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
             await update.effective_chat.send_document(
                 document=f,
                 filename=filename,
-                caption=f"✅ Exported {len(messages)} new messages from *{selected_chat['name']}* (since last export)",
+                caption=f"✅ Экспортировано {len(messages)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)",
                 parse_mode=ParseMode.MARKDOWN
             )
 
@@ -1197,7 +1197,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         try:
             await update.callback_query.edit_message_text(f"❌ Export failed: {str(e)}")
         except:
-            await update.effective_chat.send_message(f"❌ Export failed: {str(e)}")
+            await update.effective_chat.send_message(f"❌ Ошибка экспорта: {str(e)}")
         try:
             await client.disconnect()
         except:
@@ -1212,7 +1212,7 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
     try:
         selected_chat = context.user_data.get('selected_chat')
         if not selected_chat:
-            await update.effective_chat.send_message("❌ Chat selection lost. Please search again.")
+            await update.effective_chat.send_message("❌ Выбор чата потерян. Попробуй снова.")
             return
 
         # Get chat identity for progress tracking
@@ -1222,7 +1222,7 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
         # Get client
         client = get_user_client(user_id)
         if not client:
-            await update.effective_chat.send_message("❌ Session not found")
+            await update.effective_chat.send_message("❌ Сессия не найдена")
             return
 
         await client.connect()
@@ -1253,7 +1253,7 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
         await client.disconnect()
 
         if not messages:
-            await update.effective_chat.send_message("❌ No messages found in this chat")
+            await update.effective_chat.send_message("❌ Сообщения в этом чате не найдены")
             return
 
         # Reverse to chronological order
@@ -1266,18 +1266,18 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
         filepath = f"/tmp/{filename}"
 
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(f"Chat: {selected_chat['name']}\n")
-            f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Export type: Full export\n")
+            f.write(f"Чат: {selected_chat['name']}\n")
+            f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Тип экспорта: Полный экспорт\n")
             if transcribe:
-                f.write(f"Voice transcription: {transcribed_count}/{voice_count} transcribed\n")
-            f.write(f"Total messages: {len(messages)}\n")
+                f.write(f"Транскрипция голосовых: {transcribed_count}/{voice_count} транскрибировано\n")
+            f.write(f"Всего сообщений: {len(messages)}\n")
             f.write("=" * 80 + "\n\n")
             f.write("\n".join(messages))
 
-        caption = f"✅ Full export of *{selected_chat['name']}* - {len(messages)} messages"
+        caption = f"✅ Полный экспорт *{selected_chat['name']}* - {len(messages)} сообщений"
         if transcribe and voice_count > 0:
-            caption += f"\n🎤 Transcribed {transcribed_count}/{voice_count} voice messages"
+            caption += f"\n🎤 Транскрибировано {transcribed_count}/{voice_count} голосовых сообщений"
 
         # Send file
         with open(filepath, 'rb') as f:
@@ -1299,7 +1299,7 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
 
     except Exception as e:
         logger.error(f"Error during search export: {str(e)}", exc_info=True)
-        await update.effective_chat.send_message(f"❌ Export failed: {str(e)}")
+        await update.effective_chat.send_message(f"❌ Ошибка экспорта: {str(e)}")
         try:
             await client.disconnect()
         except:
@@ -1310,16 +1310,16 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /logout command with confirmation."""
     keyboard = [
         [
-            InlineKeyboardButton("✅ Yes, logout", callback_data="logout_yes"),
-            InlineKeyboardButton("❌ No, keep session", callback_data="logout_no")
+            InlineKeyboardButton("✅ Да, выйти", callback_data="logout_yes"),
+            InlineKeyboardButton("❌ Нет, оставить", callback_data="logout_no")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "⚠️ *Logout Confirmation*\n\n"
-        "Are you sure you want to delete your session?\n"
-        "You'll need to authenticate again with /login",
+        "⚠️ *Подтверждение выхода*\n\n"
+        "Уверен, что хочешь удалить сессию?\n"
+        "Нужно будет заново войти через /login",
         reply_markup=reply_markup,
         parse_mode=ParseMode.MARKDOWN
     )
@@ -1335,11 +1335,11 @@ async def logout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.delete_user_data(user_id)
 
         await query.edit_message_text(
-            "✅ Session deleted successfully.\n\n"
-            "Use /login to authenticate again."
+            "✅ Сессия успешно удалена.\n\n"
+            "Используй /login для повторной авторизации."
         )
     else:
-        await query.edit_message_text("❌ Logout cancelled. Your session is still active.")
+        await query.edit_message_text("❌ Выход отменён. Сессия всё ещё активна.")
 
 
 def main():
