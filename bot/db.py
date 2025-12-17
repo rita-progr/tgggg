@@ -42,7 +42,7 @@ class PendingLogin(Base):
     """
     __tablename__ = "pending_logins"
 
-    user_id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(BigInteger, primary_key=True, index=True)
     phone = Column(Text, nullable=False)
     phone_code_hash = Column(Text, nullable=False)
     temp_session_string = Column(Text, nullable=False)
