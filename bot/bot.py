@@ -216,6 +216,50 @@ def get_sender_name(message) -> str:
     return "Unknown"
 
 
+def format_messages_with_time_markers(messages_data, time_interval_minutes=30):
+    """
+    Format messages with periodic time markers.
+
+    Args:
+        messages_data: list of (message_date, sender, content) tuples
+        time_interval_minutes: show timestamp every N minutes (default 30)
+
+    Returns:
+        list of formatted strings
+    """
+    if not messages_data:
+        return []
+
+    formatted = []
+    last_timestamp = None
+    last_date = None
+
+    for msg_date, sender, content in messages_data:
+        current_date = msg_date.date()
+
+        # Show date marker when date changes
+        if last_date is None or current_date != last_date:
+            formatted.append(f"\n=== {current_date.strftime('%Y-%m-%d')} ===")
+            last_date = current_date
+            last_timestamp = None  # Force time marker after date change
+
+        # Show time marker every N minutes
+        if last_timestamp is None:
+            # First message or after date change
+            formatted.append(msg_date.strftime('%H:%M:%S'))
+            last_timestamp = msg_date
+        else:
+            delta = (msg_date - last_timestamp).total_seconds() / 60
+            if delta >= time_interval_minutes:
+                formatted.append(f"\n{msg_date.strftime('%H:%M:%S')}")
+                last_timestamp = msg_date
+
+        # Add message
+        formatted.append(f"{sender}: {content}")
+
+    return formatted
+
+
 # Command handlers
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -695,21 +739,20 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
         await client.connect()
 
         # Export only new messages
-        messages = []
+        messages_data = []
         message_ids = []
 
         async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
             content = format_message_content(message)
             if content:
                 sender = get_sender_name(message)
-                timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                messages.append(f"[{timestamp}] {sender}: {content}")
+                messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
         await client.disconnect()
 
         # Check if there are any new messages
-        if not messages:
+        if not messages_data:
             await update.effective_chat.send_message(
                 f"⚠️ Нет новых сообщений в *{selected_chat['name']}* с последнего экспорта.",
                 parse_mode=ParseMode.MARKDOWN
@@ -717,7 +760,10 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         # Reverse to chronological order
-        messages.reverse()
+        messages_data.reverse()
+
+        # Format with time markers
+        messages = format_messages_with_time_markers(messages_data, time_interval_minutes=30)
 
         # Create file
         filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -728,9 +774,10 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(f"Чат: {selected_chat['name']}\n")
             f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Формат: временные маркеры каждые 30 минут\n")
             f.write(f"Тип экспорта: Инкрементальный (только новые сообщения)\n")
-            f.write(f"Всего сообщений: {len(messages)}\n")
-            f.write("=" * 80 + "\n\n")
+            f.write(f"Всего сообщений: {len(messages_data)}\n")
+            f.write("=" * 80 + "\n")
             f.write("\n".join(messages))
 
         # Send file
@@ -738,7 +785,7 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
             await update.effective_chat.send_document(
                 document=f,
                 filename=filename,
-                caption=f"✅ Экспортировано {len(messages)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)",
+                caption=f"✅ Экспортировано {len(messages_data)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)",
                 parse_mode=ParseMode.MARKDOWN
             )
 
@@ -804,25 +851,27 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
         await client.connect()
 
         # Export messages
-        messages = []
+        messages_data = []
         message_ids = []
 
         async for message in client.iter_messages(selected_chat['id'], limit=limit):
             content = format_message_content(message)
             if content:
                 sender = get_sender_name(message)
-                timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                messages.append(f"[{timestamp}] {sender}: {content}")
+                messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
         await client.disconnect()
 
-        if not messages:
+        if not messages_data:
             await update.message.reply_text("❌ Сообщения в этом чате не найдены")
             return
 
         # Reverse to chronological order
-        messages.reverse()
+        messages_data.reverse()
+
+        # Format with time markers
+        messages = format_messages_with_time_markers(messages_data, time_interval_minutes=30)
 
         # Create file
         filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -833,12 +882,13 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(f"Чат: {selected_chat['name']}\n")
             f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Формат: временные маркеры каждые 30 минут\n")
             f.write(f"Тип экспорта: Полный экспорт\n")
-            f.write(f"Всего сообщений: {len(messages)}\n")
-            f.write("=" * 80 + "\n\n")
+            f.write(f"Всего сообщений: {len(messages_data)}\n")
+            f.write("=" * 80 + "\n")
             f.write("\n".join(messages))
 
-        caption = f"✅ Полный экспорт *{selected_chat['name']}* - {len(messages)} сообщений"
+        caption = f"✅ Полный экспорт *{selected_chat['name']}* - {len(messages_data)} сообщений"
 
         # Send file
         with open(filepath, 'rb') as f:
@@ -891,7 +941,7 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
         await client.connect()
 
         # Export messages
-        messages = []
+        messages_data = []
         message_ids = []
         voice_count = 0
         transcribed_count = 0
@@ -909,18 +959,20 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
             content = format_message_content(message, transcription)
             if content:
                 sender = get_sender_name(message)
-                timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                messages.append(f"[{timestamp}] {sender}: {content}")
+                messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
         await client.disconnect()
 
-        if not messages:
+        if not messages_data:
             await update.effective_chat.send_message("❌ Сообщения в этом чате не найдены")
             return
 
         # Reverse to chronological order
-        messages.reverse()
+        messages_data.reverse()
+
+        # Format with time markers
+        messages = format_messages_with_time_markers(messages_data, time_interval_minutes=30)
 
         # Create file
         filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -931,14 +983,15 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(f"Чат: {selected_chat['name']}\n")
             f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Формат: временные маркеры каждые 30 минут\n")
             f.write(f"Тип экспорта: Полный экспорт\n")
             if transcribe:
                 f.write(f"Транскрипция голосовых: {transcribed_count}/{voice_count} транскрибировано\n")
-            f.write(f"Всего сообщений: {len(messages)}\n")
-            f.write("=" * 80 + "\n\n")
+            f.write(f"Всего сообщений: {len(messages_data)}\n")
+            f.write("=" * 80 + "\n")
             f.write("\n".join(messages))
 
-        caption = f"✅ Полный экспорт *{selected_chat['name']}* - {len(messages)} сообщений"
+        caption = f"✅ Полный экспорт *{selected_chat['name']}* - {len(messages_data)} сообщений"
         if transcribe and voice_count > 0:
             caption += f"\n🎤 Транскрибировано {transcribed_count}/{voice_count} голосовых сообщений"
 
@@ -1136,21 +1189,20 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         await client.connect()
 
         # Export only new messages
-        messages = []
+        messages_data = []
         message_ids = []
 
         async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
             content = format_message_content(message)
             if content:
                 sender = get_sender_name(message)
-                timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                messages.append(f"[{timestamp}] {sender}: {content}")
+                messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
         await client.disconnect()
 
         # Check if there are any new messages
-        if not messages:
+        if not messages_data:
             await update.callback_query.edit_message_text(
                 f"⚠️ Нет новых сообщений в *{selected_chat['name']}* с последнего экспорта.",
                 parse_mode=ParseMode.MARKDOWN
@@ -1158,7 +1210,10 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
             return
 
         # Reverse to chronological order
-        messages.reverse()
+        messages_data.reverse()
+
+        # Format with time markers
+        messages = format_messages_with_time_markers(messages_data, time_interval_minutes=30)
 
         # Create file
         filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -1169,9 +1224,10 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(f"Чат: {selected_chat['name']}\n")
             f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Формат: временные маркеры каждые 30 минут\n")
             f.write(f"Тип экспорта: Инкрементальный (только новые сообщения)\n")
-            f.write(f"Всего сообщений: {len(messages)}\n")
-            f.write("=" * 80 + "\n\n")
+            f.write(f"Всего сообщений: {len(messages_data)}\n")
+            f.write("=" * 80 + "\n")
             f.write("\n".join(messages))
 
         # Send file
@@ -1179,7 +1235,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
             await update.effective_chat.send_document(
                 document=f,
                 filename=filename,
-                caption=f"✅ Экспортировано {len(messages)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)",
+                caption=f"✅ Экспортировано {len(messages_data)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)",
                 parse_mode=ParseMode.MARKDOWN
             )
 
@@ -1228,7 +1284,7 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
         await client.connect()
 
         # Export messages
-        messages = []
+        messages_data = []
         message_ids = []
         voice_count = 0
         transcribed_count = 0
@@ -1246,18 +1302,20 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
             content = format_message_content(message, transcription)
             if content:
                 sender = get_sender_name(message)
-                timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
-                messages.append(f"[{timestamp}] {sender}: {content}")
+                messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
         await client.disconnect()
 
-        if not messages:
+        if not messages_data:
             await update.effective_chat.send_message("❌ Сообщения в этом чате не найдены")
             return
 
         # Reverse to chronological order
-        messages.reverse()
+        messages_data.reverse()
+
+        # Format with time markers
+        messages = format_messages_with_time_markers(messages_data, time_interval_minutes=30)
 
         # Create file
         filename = f"export_{selected_chat['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -1268,14 +1326,15 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(f"Чат: {selected_chat['name']}\n")
             f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Формат: временные маркеры каждые 30 минут\n")
             f.write(f"Тип экспорта: Полный экспорт\n")
             if transcribe:
                 f.write(f"Транскрипция голосовых: {transcribed_count}/{voice_count} транскрибировано\n")
-            f.write(f"Всего сообщений: {len(messages)}\n")
-            f.write("=" * 80 + "\n\n")
+            f.write(f"Всего сообщений: {len(messages_data)}\n")
+            f.write("=" * 80 + "\n")
             f.write("\n".join(messages))
 
-        caption = f"✅ Полный экспорт *{selected_chat['name']}* - {len(messages)} сообщений"
+        caption = f"✅ Полный экспорт *{selected_chat['name']}* - {len(messages_data)} сообщений"
         if transcribe and voice_count > 0:
             caption += f"\n🎤 Транскрибировано {transcribed_count}/{voice_count} голосовых сообщений"
 
