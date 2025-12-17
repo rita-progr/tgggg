@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Migration script to fix chat_progress table column types.
-Changes last_message_id from INTEGER to BIGINT.
+Changes user_id, chat_id, and last_message_id from INTEGER to BIGINT.
 """
 
 import os
@@ -100,19 +100,40 @@ def migrate_postgresql(conn):
     """
     PostgreSQL supports ALTER COLUMN TYPE.
     """
-    print("\n🔄 PostgreSQL detected - altering column type...")
+    print("\n🔄 PostgreSQL detected - altering column types...")
 
     try:
+        # PostgreSQL requires separate ALTER COLUMN statements
+        print("Changing user_id to BIGINT...")
+        conn.execute(text("""
+            ALTER TABLE chat_progress
+            ALTER COLUMN user_id TYPE BIGINT
+        """))
+        conn.commit()
+        print("✅ user_id changed to BIGINT")
+
+        print("Changing chat_id to BIGINT...")
+        conn.execute(text("""
+            ALTER TABLE chat_progress
+            ALTER COLUMN chat_id TYPE BIGINT
+        """))
+        conn.commit()
+        print("✅ chat_id changed to BIGINT")
+
+        print("Changing last_message_id to BIGINT...")
         conn.execute(text("""
             ALTER TABLE chat_progress
             ALTER COLUMN last_message_id TYPE BIGINT
         """))
         conn.commit()
-        print("✅ Column type changed to BIGINT")
+        print("✅ last_message_id changed to BIGINT")
+
         print("\n✅ PostgreSQL migration completed!")
     except Exception as e:
         print(f"❌ Error during migration: {e}")
         print("\nYou may need to run manually:")
+        print("ALTER TABLE chat_progress ALTER COLUMN user_id TYPE BIGINT;")
+        print("ALTER TABLE chat_progress ALTER COLUMN chat_id TYPE BIGINT;")
         print("ALTER TABLE chat_progress ALTER COLUMN last_message_id TYPE BIGINT;")
         raise
 
@@ -121,7 +142,10 @@ if __name__ == "__main__":
     print("🔧 Chat Progress Table Migration")
     print("=" * 60)
     print(f"\nDatabase: {DATABASE_URL}")
-    print("\nThis will change last_message_id from INTEGER to BIGINT")
+    print("\nThis will change the following columns from INTEGER to BIGINT:")
+    print("  - user_id")
+    print("  - chat_id")
+    print("  - last_message_id")
 
     response = input("\nContinue? (yes/no): ")
     if response.lower() != 'yes':
