@@ -618,6 +618,7 @@ async def export_chat_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 [InlineKeyboardButton("⬇️ Все сообщения (10000)", callback_data="export_mode_all_max")]
             ]
             if TRANSCRIPTION_AVAILABLE:
+                keyboard.insert(1, [InlineKeyboardButton("📥 Только новые + транскрипция", callback_data="export_mode_incremental_transcribe")])
                 keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data="export_mode_all_max_transcribe")])
             await query.edit_message_text(
                 f"📊 Выбран: *{selected_chat['name']}*\n\n"
@@ -659,6 +660,18 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             selected_chat = context.user_data.get('selected_chat')
             await query.edit_message_text(
                 f"⏳ Экспортирую новые сообщения из *{selected_chat['name']}*...\n"
+                "Это может занять некоторое время.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await export_do_incremental(update, context)
+
+        elif callback_data == "export_mode_incremental_transcribe":
+            # User chose "only new messages + transcription"
+            context.user_data['export_mode'] = 'incremental'
+            context.user_data['transcribe_voice'] = True
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"⏳ Экспортирую новые сообщения из *{selected_chat['name']}* с транскрипцией голосовых...\n"
                 "Это может занять некоторое время.",
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -727,6 +740,9 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
         chat_id = selected_chat['chat_id']
         chat_type = selected_chat['chat_type']
 
+        # Get transcription flag
+        transcribe = context.user_data.get('transcribe_voice', False)
+
         # Get last message id for incremental export
         last_message_id = db.get_chat_progress(user_id, chat_id, chat_type)
 
@@ -741,9 +757,23 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
         # Export only new messages
         messages_data = []
         message_ids = []
+        voice_count = 0
+        transcribed_count = 0
 
         async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
-            content = format_message_content(message)
+            transcription = None
+
+            # Transcribe voice messages if enabled
+            if transcribe and is_voice_message(message):
+                voice_count += 1
+                try:
+                    transcription = await transcribe_voice(client, message)
+                    if transcription:
+                        transcribed_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to transcribe voice message {message.id}: {e}")
+
+            content = format_message_content(message, transcription)
             if content:
                 sender = get_sender_name(message)
                 messages_data.append((message.date, sender, content))
@@ -776,21 +806,30 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
             f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Формат: временные маркеры каждые 30 минут\n")
             f.write(f"Тип экспорта: Инкрементальный (только новые сообщения)\n")
+            if transcribe:
+                f.write(f"Голосовые сообщения: {voice_count} найдено, {transcribed_count} транскрибировано\n")
             f.write(f"Всего сообщений: {len(messages_data)}\n")
             f.write("=" * 80 + "\n")
             f.write("\n".join(messages))
 
         # Send file
+        caption = f"✅ Экспортировано {len(messages_data)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)"
+        if transcribe and voice_count > 0:
+            caption += f"\n🎤 Транскрибировано {transcribed_count} из {voice_count} голосовых сообщений"
+
         with open(filepath, 'rb') as f:
             await update.effective_chat.send_document(
                 document=f,
                 filename=filename,
-                caption=f"✅ Экспортировано {len(messages_data)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)",
+                caption=caption,
                 parse_mode=ParseMode.MARKDOWN
             )
 
         # Clean up file
         os.remove(filepath)
+
+        # Reset transcribe flag
+        context.user_data.pop('transcribe_voice', None)
 
         # Save progress
         if message_ids:
@@ -1055,6 +1094,7 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
                 [InlineKeyboardButton("⬇️ Все сообщения (10000)", callback_data=f"search_export_mode_all_max_{index}")]
             ]
             if TRANSCRIPTION_AVAILABLE:
+                keyboard.insert(1, [InlineKeyboardButton("📥 Только новые + транскрипция", callback_data=f"search_export_mode_incremental_transcribe_{index}")])
                 keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data=f"search_export_mode_transcribe_{index}")])
             await query.edit_message_text(
                 f"📊 Выбран: *{selected_chat['name']}*\n\n"
@@ -1091,7 +1131,22 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
     try:
         callback_data = query.data
 
-        if callback_data.startswith("search_export_mode_incremental_"):
+        if callback_data.startswith("search_export_mode_incremental_transcribe_"):
+            # User chose "only new messages + transcription"
+            context.user_data['export_mode'] = 'incremental'
+            context.user_data['transcribe_voice'] = True
+            context.user_data['awaiting_search_export_limit'] = False
+
+            selected_chat = context.user_data.get('selected_chat')
+            await query.edit_message_text(
+                f"⏳ Экспортирую новые сообщения из *{selected_chat['name']}* с транскрипцией голосовых...\n"
+                "Это может занять некоторое время.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            # Trigger the export immediately without waiting for user input
+            await search_export_do_incremental(update, context)
+
+        elif callback_data.startswith("search_export_mode_incremental_"):
             # User chose "only new messages"
             context.user_data['export_mode'] = 'incremental'
             context.user_data['awaiting_search_export_limit'] = False
@@ -1177,6 +1232,9 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         chat_id = selected_chat['chat_id']
         chat_type = selected_chat['chat_type']
 
+        # Get transcription flag
+        transcribe = context.user_data.get('transcribe_voice', False)
+
         # Get last message id for incremental export
         last_message_id = db.get_chat_progress(user_id, chat_id, chat_type)
 
@@ -1191,9 +1249,23 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         # Export only new messages
         messages_data = []
         message_ids = []
+        voice_count = 0
+        transcribed_count = 0
 
         async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
-            content = format_message_content(message)
+            transcription = None
+
+            # Transcribe voice messages if enabled
+            if transcribe and is_voice_message(message):
+                voice_count += 1
+                try:
+                    transcription = await transcribe_voice(client, message)
+                    if transcription:
+                        transcribed_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to transcribe voice message {message.id}: {e}")
+
+            content = format_message_content(message, transcription)
             if content:
                 sender = get_sender_name(message)
                 messages_data.append((message.date, sender, content))
@@ -1226,21 +1298,30 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
             f.write(f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Формат: временные маркеры каждые 30 минут\n")
             f.write(f"Тип экспорта: Инкрементальный (только новые сообщения)\n")
+            if transcribe:
+                f.write(f"Голосовые сообщения: {voice_count} найдено, {transcribed_count} транскрибировано\n")
             f.write(f"Всего сообщений: {len(messages_data)}\n")
             f.write("=" * 80 + "\n")
             f.write("\n".join(messages))
 
         # Send file
+        caption = f"✅ Экспортировано {len(messages_data)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)"
+        if transcribe and voice_count > 0:
+            caption += f"\n🎤 Транскрибировано {transcribed_count} из {voice_count} голосовых сообщений"
+
         with open(filepath, 'rb') as f:
             await update.effective_chat.send_document(
                 document=f,
                 filename=filename,
-                caption=f"✅ Экспортировано {len(messages_data)} новых сообщений из *{selected_chat['name']}* (с последнего экспорта)",
+                caption=caption,
                 parse_mode=ParseMode.MARKDOWN
             )
 
         # Clean up file
         os.remove(filepath)
+
+        # Reset transcribe flag
+        context.user_data.pop('transcribe_voice', None)
 
         # Save progress
         if message_ids:
