@@ -58,7 +58,7 @@ class ChatProgress(Base):
     user_id = Column(BigInteger, primary_key=True, index=True)
     chat_id = Column(BigInteger, primary_key=True, index=True)
     chat_type = Column(Text, primary_key=True)  # 'user', 'chat', or 'channel'
-    last_message_id = Column(Integer, nullable=False)
+    last_message_id = Column(BigInteger, nullable=False)
     updated_at = Column(Integer, default=lambda: int(time.time()))
 
 
