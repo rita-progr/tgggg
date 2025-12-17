@@ -352,6 +352,49 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 CHATS_PER_PAGE = 10
 
 
+def fuzzy_search(query, text):
+    """Improved search with fuzzy matching."""
+    query = query.lower()
+    text = text.lower()
+
+    # Exact match
+    if query == text:
+        return True
+
+    # Substring match
+    if query in text:
+        return True
+
+    # Word-based search (all query words must be in text)
+    query_words = query.split()
+    return all(word in text for word in query_words)
+
+
+def relevance_score(dialog_name, query):
+    """Calculate relevance score for sorting results."""
+    name_lower = dialog_name.lower()
+    query_lower = query.lower()
+
+    # Exact match - highest priority
+    if query_lower == name_lower:
+        return 100
+
+    # Starts with query - high priority
+    if name_lower.startswith(query_lower):
+        return 80
+
+    # Contains query - medium priority
+    if query_lower in name_lower:
+        return 60
+
+    # All query words are in name - low priority
+    query_words = query_lower.split()
+    if all(word in name_lower for word in query_words):
+        return 40
+
+    return 0
+
+
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /search command - search for chats by name."""
     user_id = update.effective_user.id
@@ -389,18 +432,22 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await client.disconnect()
             return
 
-        # Get all dialogs
-        dialogs = await client.get_dialogs(limit=100)
+        # Get all dialogs (increased limit to find more chats)
+        dialogs = await client.get_dialogs(limit=500)
         await client.disconnect()
 
-        # Filter by search query
-        results = [d for d in dialogs if search_query in d.name.lower()]
+        # Filter by search query using fuzzy search
+        results = [d for d in dialogs if fuzzy_search(search_query, d.name)]
 
         if not results:
             await update.message.reply_text(
-                f"❌ Чаты по запросу '{search_query}' не найдены"
+                f"❌ Чаты по запросу '{search_query}' не найдены\n"
+                f"Проверено {len(dialogs)} чатов"
             )
             return
+
+        # Sort results by relevance
+        results.sort(key=lambda d: relevance_score(d.name, search_query), reverse=True)
 
         # Store search results in context for callback handlers
         context.user_data['search_results'] = []
