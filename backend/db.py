@@ -29,7 +29,7 @@ class User(Base):
     """
     __tablename__ = "users"
 
-    user_id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(BigInteger, primary_key=True, index=True)
     session_string = Column(Text, nullable=False)  # Encrypted with Fernet
     is_authenticated = Column(Boolean, default=False)
     last_activity = Column(Integer, default=lambda: int(time.time()))
