@@ -338,7 +338,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1️⃣ Нажми кнопку ниже для авторизации\n"
         "2️⃣ Используй /export для выбора и экспорта чата\n"
         "3️⃣ Или /search для поиска по названию\n\n"
-        "Напиши /help для справки.",
+        "Напиши /help для справки.\n"
+        "🔐 Политика конфиденциальности: /privacy",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -352,6 +353,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/status - Проверить статус авторизации\n"
         "/export - Выбрать и экспортировать чат\n"
         "/search - Поиск чата по названию\n"
+        "/privacy - Политика конфиденциальности\n"
         "/logout - Выйти из аккаунта\n"
         "/help - Показать эту справку\n\n"
         "*Как пользоваться:*\n"
@@ -411,6 +413,34 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Попробуй войти заново через /login",
             parse_mode=ParseMode.MARKDOWN
         )
+
+
+async def privacy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /privacy command - show privacy policy."""
+    await update.message.reply_text(
+        "🔐 *Политика конфиденциальности*\n\n"
+        "*Какие данные мы собираем:*\n"
+        "• Telegram User ID\n"
+        "• Зашифрованная строка сессии\n"
+        "• Прогресс экспорта чатов\n\n"
+        "*Как мы используем данные:*\n"
+        "• Для авторизации в Telegram API\n"
+        "• Для экспорта истории сообщений\n"
+        "• Для отслеживания прогресса экспорта\n\n"
+        "*Ваши права:*\n"
+        "✅ Удалить все данные: /logout\n"
+        "✅ Проверить статус: /status\n"
+        "✅ Прекратить использование в любой момент\n\n"
+        "*Безопасность:*\n"
+        "🔐 Session strings хранятся зашифрованными\n"
+        "📁 Временные файлы удаляются автоматически\n"
+        "🎤 Транскрипция использует сторонний сервис Groq\n\n"
+        "*Полная версия:*\n"
+        "Подробная политика доступна в файле `PRIVACY_POLICY.md` "
+        "в репозитории бота.\n\n"
+        "📅 Последнее обновление: 14 февраля 2026",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
 
 CHATS_PER_PAGE = 10
@@ -1657,6 +1687,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("login", login_command))
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("privacy", privacy_command))
     application.add_handler(CommandHandler("search", search_command))
     application.add_handler(CommandHandler("logout", logout_command))
 
