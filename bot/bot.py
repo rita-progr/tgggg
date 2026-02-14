@@ -267,15 +267,16 @@ def format_message_content(message, transcription: Optional[str] = None) -> Opti
 
 def get_sender_name(message) -> str:
     """Extract sender name from message."""
-    if message.sender:
-        if isinstance(message.sender, TelethonUser):
-            name = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
-            if not name:
-                name = f"User_{message.sender.id}"
-            return name
-        else:
-            return getattr(message.sender, 'title', 'Unknown')
-    return "Unknown"
+    if not message.sender:
+        return "System"
+
+    if isinstance(message.sender, TelethonUser):
+        name = f"{message.sender.first_name or ''} {message.sender.last_name or ''}".strip()
+        if not name:
+            name = f"User_{message.sender.id}"
+        return name
+    else:
+        return getattr(message.sender, 'title', 'Unknown')
 
 
 def format_messages_with_time_markers(messages_data, time_interval_minutes=30):
@@ -492,12 +493,10 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "❌ Сессия истекла. Используй /login для повторной авторизации."
             )
-            await client.disconnect()
             return
 
         # Get all dialogs (increased limit to find more chats)
         dialogs = await client.get_dialogs(limit=500)
-        await client.disconnect()
 
         # Filter by search query using fuzzy search
         results = [d for d in dialogs if fuzzy_search(search_query, d.name)]
@@ -559,6 +558,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"❌ Ошибка поиска: {str(e)}"
         )
+    finally:
         try:
             await client.disconnect()
         except:
@@ -637,14 +637,12 @@ async def export_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "❌ Сессия истекла. Используй /login для повторной авторизации."
             )
-            await client.disconnect()
             return
 
         await update.message.reply_text("📋 Загружаю твои чаты...")
 
         # Get dialogs
         dialogs = await client.get_dialogs(limit=50)
-        await client.disconnect()
 
         if not dialogs:
             await update.message.reply_text("Чаты не найдены.")
@@ -671,14 +669,10 @@ async def export_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"⏳ Лимит запросов. Подожди {e.seconds} сек. и попробуй снова."
         )
-        try:
-            await client.disconnect()
-        except:
-            pass
-
     except Exception as e:
         logger.error(f"Error starting export: {str(e)}", exc_info=True)
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+    finally:
         try:
             await client.disconnect()
         except:
@@ -693,7 +687,17 @@ async def export_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if query.data == "export_page_noop":
         return
 
-    page = int(query.data.split('_')[2])
+    try:
+        parts = query.data.split('_')
+        if len(parts) < 3:
+            await query.edit_message_text("❌ Неверный формат данных")
+            return
+        page = int(parts[2])
+    except (ValueError, IndexError) as e:
+        logger.error(f"Invalid callback_data: {query.data}, error: {e}")
+        await query.edit_message_text("❌ Ошибка обработки кнопки")
+        return
+
     await show_export_page(update, context, page)
 
 
@@ -705,7 +709,11 @@ async def export_chat_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = update.effective_user.id
 
     try:
-        index = int(query.data.split('_')[2])
+        parts = query.data.split('_')
+        if len(parts) < 3:
+            await query.edit_message_text("❌ Неверный формат данных")
+            return
+        index = int(parts[2])
         dialogs = context.user_data.get('export_dialogs', [])
 
         if index < 0 or index >= len(dialogs):
@@ -751,6 +759,9 @@ async def export_chat_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 parse_mode=ParseMode.MARKDOWN
             )
 
+    except (ValueError, IndexError) as e:
+        logger.error(f"Invalid callback_data in export_chat_callback: {query.data}, error: {e}")
+        await query.edit_message_text("❌ Ошибка обработки кнопки")
     except Exception as e:
         logger.error(f"Error in export_chat_callback: {str(e)}", exc_info=True)
         await query.edit_message_text(f"❌ Ошибка: {str(e)}")
@@ -840,6 +851,8 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Perform incremental export (new messages only)."""
     user_id = update.effective_user.id
+    client = None
+    filepath = None
 
     try:
         selected_chat = context.user_data.get('selected_chat')
@@ -889,8 +902,6 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
-        await client.disconnect()
-
         # Check if there are any new messages
         if not messages_data:
             await update.effective_chat.send_message(
@@ -935,9 +946,6 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
                 parse_mode=ParseMode.MARKDOWN
             )
 
-        # Clean up file
-        os.remove(filepath)
-
         # Reset transcribe flag
         context.user_data.pop('transcribe_voice', None)
 
@@ -950,10 +958,20 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Error during incremental export: {str(e)}", exc_info=True)
         await update.effective_chat.send_message(f"❌ Ошибка экспорта: {str(e)}")
-        try:
-            await client.disconnect()
-        except:
-            pass
+    finally:
+        # Clean up file
+        if filepath:
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except Exception as e:
+                logger.error(f"Failed to remove temp file {filepath}: {e}")
+
+        if client:
+            try:
+                await client.disconnect()
+            except:
+                pass
 
 
 async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -970,6 +988,8 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['awaiting_search_export_limit'] = False
 
     user_id = update.effective_user.id
+    client = None
+    filepath = None
 
     try:
         # Parse limit
@@ -1010,8 +1030,6 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
-        await client.disconnect()
-
         if not messages_data:
             await update.message.reply_text("❌ Сообщения в этом чате не найдены")
             return
@@ -1048,9 +1066,6 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode=ParseMode.MARKDOWN
             )
 
-        # Clean up file
-        os.remove(filepath)
-
         # Save progress
         if message_ids:
             new_last_message_id = max(message_ids)
@@ -1060,16 +1075,28 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"Error during export: {str(e)}", exc_info=True)
         await update.message.reply_text(f"❌ Ошибка экспорта: {str(e)}")
-        try:
-            await client.disconnect()
-        except:
-            pass
+    finally:
+        # Clean up file
+        if filepath:
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except Exception as e:
+                logger.error(f"Failed to remove temp file {filepath}: {e}")
+
+        if client:
+            try:
+                await client.disconnect()
+            except:
+                pass
 
 
 async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFAULT_TYPE, limit: int):
     """Perform export with a preset limit (called from callback buttons)."""
     user_id = update.effective_user.id
     transcribe = context.user_data.get('transcribe_voice', False)
+    client = None
+    filepath = None
 
     try:
         selected_chat = context.user_data.get('selected_chat')
@@ -1111,8 +1138,6 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
-        await client.disconnect()
-
         if not messages_data:
             await update.effective_chat.send_message("❌ Сообщения в этом чате не найдены")
             return
@@ -1153,9 +1178,6 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
                 parse_mode=ParseMode.MARKDOWN
             )
 
-        # Clean up file
-        os.remove(filepath)
-
         # Save progress
         if message_ids:
             new_last_message_id = max(message_ids)
@@ -1165,10 +1187,20 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
     except Exception as e:
         logger.error(f"Error during export: {str(e)}", exc_info=True)
         await update.effective_chat.send_message(f"❌ Ошибка экспорта: {str(e)}")
-        try:
-            await client.disconnect()
-        except:
-            pass
+    finally:
+        # Clean up file
+        if filepath:
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except Exception as e:
+                logger.error(f"Failed to remove temp file {filepath}: {e}")
+
+        if client:
+            try:
+                await client.disconnect()
+            except:
+                pass
 
 
 async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1180,7 +1212,11 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     try:
         # Extract index from callback data
-        index = int(query.data.split('_')[2])
+        parts = query.data.split('_')
+        if len(parts) < 3:
+            await query.edit_message_text("❌ Неверный формат данных")
+            return
+        index = int(parts[2])
         search_results = context.user_data.get('search_results', [])
 
         if index < 0 or index >= len(search_results):
@@ -1228,6 +1264,9 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
             )
             context.user_data['awaiting_search_export_limit'] = True
 
+    except (ValueError, IndexError) as e:
+        logger.error(f"Invalid callback_data in search_export_callback: {query.data}, error: {e}")
+        await query.edit_message_text("❌ Ошибка обработки кнопки")
     except Exception as e:
         logger.error(f"Error in search_export_callback: {str(e)}", exc_info=True)
         await query.edit_message_text(f"❌ Ошибка: {str(e)}")
@@ -1332,6 +1371,8 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
 async def search_export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Perform incremental export (new messages only)."""
     user_id = update.effective_user.id
+    client = None
+    filepath = None
 
     try:
         selected_chat = context.user_data.get('selected_chat')
@@ -1381,8 +1422,6 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
-        await client.disconnect()
-
         # Check if there are any new messages
         if not messages_data:
             await update.callback_query.edit_message_text(
@@ -1427,9 +1466,6 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
                 parse_mode=ParseMode.MARKDOWN
             )
 
-        # Clean up file
-        os.remove(filepath)
-
         # Reset transcribe flag
         context.user_data.pop('transcribe_voice', None)
 
@@ -1445,16 +1481,28 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
             await update.callback_query.edit_message_text(f"❌ Export failed: {str(e)}")
         except:
             await update.effective_chat.send_message(f"❌ Ошибка экспорта: {str(e)}")
-        try:
-            await client.disconnect()
-        except:
-            pass
+    finally:
+        # Clean up file
+        if filepath:
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except Exception as e:
+                logger.error(f"Failed to remove temp file {filepath}: {e}")
+
+        if client:
+            try:
+                await client.disconnect()
+            except:
+                pass
 
 
 async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT_TYPE, limit: int):
     """Perform search export with a preset limit (called from callback buttons)."""
     user_id = update.effective_user.id
     transcribe = context.user_data.get('transcribe_voice', False)
+    client = None
+    filepath = None
 
     try:
         selected_chat = context.user_data.get('selected_chat')
@@ -1496,8 +1544,6 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
-        await client.disconnect()
-
         if not messages_data:
             await update.effective_chat.send_message("❌ Сообщения в этом чате не найдены")
             return
@@ -1538,9 +1584,6 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
                 parse_mode=ParseMode.MARKDOWN
             )
 
-        # Clean up file
-        os.remove(filepath)
-
         # Save progress
         if message_ids:
             new_last_message_id = max(message_ids)
@@ -1550,10 +1593,20 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
     except Exception as e:
         logger.error(f"Error during search export: {str(e)}", exc_info=True)
         await update.effective_chat.send_message(f"❌ Ошибка экспорта: {str(e)}")
-        try:
-            await client.disconnect()
-        except:
-            pass
+    finally:
+        # Clean up file
+        if filepath:
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except Exception as e:
+                logger.error(f"Failed to remove temp file {filepath}: {e}")
+
+        if client:
+            try:
+                await client.disconnect()
+            except:
+                pass
 
 
 async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

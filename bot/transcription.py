@@ -30,6 +30,7 @@ async def transcribe_voice(client, message) -> Optional[str]:
         logger.warning("GROQ_API_KEY not set, skipping transcription")
         return None
 
+    tmp_path = None
     try:
         from groq import Groq
 
@@ -49,12 +50,6 @@ async def transcribe_voice(client, message) -> Optional[str]:
                 response_format="text",
             )
 
-        # Clean up temp file
-        try:
-            os.remove(tmp_path)
-        except:
-            pass
-
         # Return transcribed text
         text = transcription.strip() if isinstance(transcription, str) else str(transcription).strip()
 
@@ -66,12 +61,15 @@ async def transcribe_voice(client, message) -> Optional[str]:
 
     except Exception as e:
         logger.error(f"Transcription failed: {str(e)}")
-        # Clean up temp file on error
-        try:
-            os.remove(tmp_path)
-        except:
-            pass
         return None
+    finally:
+        # Always clean up temp file
+        if tmp_path:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception as e:
+                logger.error(f"Failed to remove temp file {tmp_path}: {e}")
 
 
 def is_voice_message(message) -> bool:

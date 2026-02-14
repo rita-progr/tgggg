@@ -4,12 +4,16 @@ Provides read-only access to user sessions and authentication status.
 Shares the same database with backend.
 """
 import os
+import logging
 from typing import Optional
 from sqlalchemy import create_engine, Column, Integer, BigInteger, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from bot.crypto_utils import decrypt
+from cryptography.fernet import InvalidToken
 import time
+
+logger = logging.getLogger(__name__)
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./data/database.db")
@@ -81,7 +85,11 @@ def get_session_string(user_id: int) -> Optional[str]:
     try:
         user = db.query(User).filter(User.user_id == user_id).first()
         if user and user.session_string:
-            return decrypt(user.session_string)
+            try:
+                return decrypt(user.session_string)
+            except InvalidToken:
+                logger.error(f"Failed to decrypt session for user {user_id} - invalid key or corrupted data")
+                return None
         return None
     finally:
         db.close()
