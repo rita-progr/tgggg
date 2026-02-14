@@ -345,21 +345,55 @@ def format_messages_with_time_markers(messages_data, time_interval_minutes=30):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
+    user_id = update.effective_user.id
+    has_credentials = db.has_user_api_credentials(user_id)
+    is_authenticated = db.is_user_authenticated(user_id)
+
     keyboard = [[
         InlineKeyboardButton("🔐 Войти через WebApp", web_app=WebAppInfo(url=WEBAPP_URL))
     ]]
 
-    await update.message.reply_text(
-        "👋 Привет! Это бот для экспорта истории чатов Telegram.\n\n"
-        "Я помогу сохранить переписку в текстовые файлы.\n\n"
-        "Для начала:\n"
-        "1️⃣ Нажми кнопку ниже для авторизации\n"
-        "2️⃣ Используй /export для выбора и экспорта чата\n"
-        "3️⃣ Или /search для поиска по названию\n\n"
-        "Напиши /help для справки.\n"
-        "🔐 Политика конфиденциальности: /privacy",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    # Different message for new vs returning users
+    if is_authenticated and has_credentials:
+        # Returning user with credentials - short message
+        await update.message.reply_text(
+            "👋 С возвращением!\n\n"
+            "✅ Ты авторизован и используешь свои API credentials.\n\n"
+            "Доступные команды:\n"
+            "📤 /export - Экспортировать чат\n"
+            "🔍 /search - Поиск чата по названию\n"
+            "ℹ️ /help - Все команды\n\n"
+            "🔐 Политика конфиденциальности: /privacy"
+        )
+    else:
+        # New user or user without credentials - detailed instruction
+        credentials_tip = ""
+        if not has_credentials:
+            credentials_tip = (
+                "\n━━━━━━━━━━━━━━━━━━━━\n"
+                "🔑 *РЕКОМЕНДАЦИЯ (важно!)*\n\n"
+                "Для лучшей работы получи свой API ID и Hash:\n"
+                "• Переходи на my.telegram.org\n"
+                "• Создай приложение (бесплатно)\n"
+                "• Используй при входе\n\n"
+                "📖 Подробная инструкция: /apihelp\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+            )
+
+        await update.message.reply_text(
+            f"👋 Привет! Это бот для экспорта истории чатов Telegram.\n\n"
+            f"Я помогу сохранить переписку в текстовые файлы.\n\n"
+            f"*Как начать:*\n"
+            f"1️⃣ Нажми кнопку ниже для авторизации\n"
+            f"2️⃣ Используй /export для выбора и экспорта чата\n"
+            f"3️⃣ Или /search для поиска по названию\n"
+            f"{credentials_tip}\n"
+            f"📚 Все команды: /help\n"
+            f"🔐 Политика конфиденциальности: /privacy",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN
+        )
+
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -387,19 +421,33 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /login command - opens WebApp."""
+    user_id = update.effective_user.id
+    has_credentials = db.has_user_api_credentials(user_id)
+
     keyboard = [[
         InlineKeyboardButton("🔐 Войти через WebApp", web_app=WebAppInfo(url=WEBAPP_URL))
     ]]
 
+    # Add warning if user doesn't have credentials
+    credentials_warning = ""
+    if not has_credentials:
+        credentials_warning = (
+            "\n⚠️ *ВАЖНО: API Credentials*\n"
+            "Для лучшей работы рекомендуется использовать свои API ID и Hash.\n"
+            "📖 Инструкция: /apihelp\n\n"
+        )
+
     await update.message.reply_text(
-        "🔐 *Авторизация*\n\n"
-        "Нажми кнопку ниже, чтобы открыть страницу авторизации.\n\n"
-        "📝 *Шаги:*\n"
-        "1️⃣ Введи номер телефона\n"
-        "2️⃣ Введи код подтверждения\n"
-        "3️⃣ Если у тебя включён 2FA — введи пароль\n\n"
-        "💡 Если 2FA не включён, авторизация завершится автоматически после ввода кода.\n\n"
-        "⚠️ Все данные вводятся на веб-странице, не в этом чате.",
+        f"🔐 *Авторизация*\n\n"
+        f"Нажми кнопку ниже, чтобы открыть страницу авторизации.\n\n"
+        f"{credentials_warning}"
+        f"📝 *Шаги авторизации:*\n"
+        f"1️⃣ Введи API ID и API Hash (если есть)\n"
+        f"2️⃣ Введи номер телефона\n"
+        f"3️⃣ Введи код подтверждения\n"
+        f"4️⃣ Если у тебя включён 2FA — введи пароль\n\n"
+        f"💡 Если 2FA не включён, авторизация завершится автоматически после ввода кода.\n\n"
+        f"⚠️ Все данные вводятся на веб-странице, не в этом чате.",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
     )
@@ -411,19 +459,34 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     has_session = db.user_exists(user_id)
     is_authenticated = db.is_user_authenticated(user_id)
+    has_credentials = db.has_user_api_credentials(user_id)
 
     if not has_session:
         await update.message.reply_text(
             "❌ *Не авторизован*\n\n"
-            "Ты ещё не вошёл в аккаунт. Используй /login для авторизации.",
+            "Ты ещё не вошёл в аккаунт. Используй /login для авторизации.\n\n"
+            "💡 Рекомендация: получи свой API ID/Hash перед входом\n"
+            "Инструкция: /apihelp",
             parse_mode=ParseMode.MARKDOWN
         )
         return
 
+    # Build credentials status
+    if has_credentials:
+        creds_status = "✅ Используешь свои API credentials"
+        creds_details = "Отлично! Твои лимиты изолированы от других пользователей."
+    else:
+        creds_status = "⚠️ Используешь общие API credentials"
+        creds_details = "Рекомендуется получить свои для лучшей работы.\n📖 Инструкция: /apihelp"
+
     if is_authenticated:
         await update.message.reply_text(
-            "✅ *Авторизован*\n\n"
-            "Ты вошёл в аккаунт и можешь использовать /export и /search.",
+            f"✅ *Авторизован*\n\n"
+            f"Ты вошёл в аккаунт и можешь использовать /export и /search.\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*API Credentials:*\n"
+            f"{creds_status}\n\n"
+            f"{creds_details}",
             parse_mode=ParseMode.MARKDOWN
         )
     else:
@@ -469,31 +532,59 @@ async def apihelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     has_credentials = db.has_user_api_credentials(user_id)
 
-    status_text = "✅ У тебя уже есть свои API credentials" if has_credentials else "⚠️ Ты используешь общие API credentials"
+    if has_credentials:
+        status_emoji = "✅"
+        status_text = "У тебя уже есть свои API credentials"
+        recommendation = "Всё отлично! Ты используешь изолированные лимиты."
+    else:
+        status_emoji = "⚠️"
+        status_text = "Ты используешь общие API credentials"
+        recommendation = "Рекомендуется получить свои для лучшей работы!"
+
+    # Create inline keyboard with link to my.telegram.org
+    keyboard = [[
+        InlineKeyboardButton("🌐 Открыть my.telegram.org", url="https://my.telegram.org")
+    ]]
 
     await update.message.reply_text(
-        f"🔑 *Получение API Credentials*\n\n"
-        f"*Статус:* {status_text}\n\n"
-        f"*Зачем нужны свои credentials?*\n"
-        f"• Изоляция от других пользователей\n"
-        f"• Защита от блокировки\n"
-        f"• Лучшая производительность\n"
-        f"• Соответствие правилам Telegram\n\n"
-        f"*Как получить:*\n"
-        f"1️⃣ Открой https://my.telegram.org\n"
-        f"2️⃣ Войди с номером телефона\n"
-        f"3️⃣ API development tools\n"
-        f"4️⃣ Создай приложение\n"
-        f"5️⃣ Скопируй API ID и API Hash\n\n"
-        f"*Важно:*\n"
-        f"🔐 Храни credentials в секрете\n"
-        f"❌ Не публикуй в открытом доступе\n"
-        f"✅ Используй только для себя\n\n"
-        f"*Полная инструкция:*\n"
-        f"Файл `HOWTO_GET_API.md` в репозитории\n\n"
-        f"Для обновления credentials:\n"
-        f"/logout → войти заново с новыми данными",
-        parse_mode=ParseMode.MARKDOWN
+        f"🔑 *Инструкция: Получение API Credentials*\n\n"
+        f"{status_emoji} *Твой статус:* {status_text}\n"
+        f"{recommendation}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"*📋 ПОШАГОВАЯ ИНСТРУКЦИЯ:*\n\n"
+        f"*Шаг 1:* Открой сайт my.telegram.org\n"
+        f"_Нажми кнопку ниже ⬇️_\n\n"
+        f"*Шаг 2:* Войди с помощью номера телефона\n"
+        f"_Введи свой номер и код из Telegram_\n\n"
+        f"*Шаг 3:* Нажми \"API development tools\"\n"
+        f"_Это в меню на сайте_\n\n"
+        f"*Шаг 4:* Заполни форму:\n"
+        f"• App title: `My Export Bot`\n"
+        f"• Short name: `export-bot`\n"
+        f"• Platform: `Other`\n"
+        f"_Остальное можно оставить пустым_\n\n"
+        f"*Шаг 5:* Получи credentials:\n"
+        f"• `api_id`: это число (например: 12345678)\n"
+        f"• `api_hash`: это строка (32 символа)\n\n"
+        f"*Шаг 6:* Войди в бота заново:\n"
+        f"1. Нажми /logout\n"
+        f"2. Нажми /login\n"
+        f"3. Введи API ID и API Hash\n"
+        f"4. Введи номер телефона и код\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"*⚡ Зачем это нужно?*\n"
+        f"✅ Твои лимиты не зависят от других\n"
+        f"✅ Никто не может заблокировать твой доступ\n"
+        f"✅ Быстрее работает экспорт\n"
+        f"✅ Соответствует правилам Telegram\n\n"
+        f"*🔐 Безопасность:*\n"
+        f"• Храни credentials в секрете\n"
+        f"• Не публикуй их в интернете\n"
+        f"• Бот хранит их зашифрованными\n"
+        f"• Удаляются при /logout\n\n"
+        f"❓ Вопросы? Напиши /help",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
