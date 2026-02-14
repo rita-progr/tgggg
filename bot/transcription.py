@@ -2,6 +2,7 @@
 Voice message transcription using Groq Whisper API.
 """
 import os
+import asyncio
 import logging
 import tempfile
 from typing import Optional
@@ -33,12 +34,24 @@ async def transcribe_voice(client, message) -> Optional[str]:
     tmp_path = None
     try:
         from groq import Groq
+        from telethon.errors import FloodWaitError
 
         # Download voice message to temp file
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp_file:
             tmp_path = tmp_file.name
 
-        await client.download_media(message, tmp_path)
+        # Download with retry logic for FloodWait
+        for attempt in range(3):
+            try:
+                await client.download_media(message, tmp_path)
+                await asyncio.sleep(0.3)  # 300ms delay after download
+                break
+            except FloodWaitError as e:
+                if attempt == 2:  # Last attempt
+                    logger.error(f"FloodWait on download after 3 attempts: {e.seconds}s")
+                    raise
+                logger.warning(f"FloodWait {e.seconds}s during media download, attempt {attempt + 1}/3")
+                await asyncio.sleep(e.seconds)
 
         # Transcribe with Groq
         groq_client = Groq(api_key=GROQ_API_KEY)

@@ -3,6 +3,7 @@ Telegram Bot for exporting chat history.
 Uses Telethon sessions stored in database after WebApp authentication.
 """
 import os
+import asyncio
 import logging
 from datetime import datetime
 from typing import Optional
@@ -10,6 +11,7 @@ from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     Application,
+    AIORateLimiter,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -53,7 +55,8 @@ TG_API_HASH = os.environ["TG_API_HASH"]
 
 def get_user_client(user_id: int) -> Optional[TelegramClient]:
     """
-    Create Telethon client from stored session.
+    Create Telethon client from stored session with flood protection.
+    Uses user's own API credentials if available, falls back to default.
 
     Args:
         user_id: Telegram user ID
@@ -65,11 +68,26 @@ def get_user_client(user_id: int) -> Optional[TelegramClient]:
     if not session_string:
         return None
 
-    return TelegramClient(
+    # Try to get user's own API credentials first
+    user_credentials = db.get_user_api_credentials(user_id)
+    if user_credentials:
+        api_id, api_hash = user_credentials
+        logger.info(f"Using user's own API credentials for user {user_id}")
+    else:
+        # Fallback to default credentials from environment
+        api_id, api_hash = TG_API_ID, TG_API_HASH
+        logger.info(f"Using default API credentials for user {user_id}")
+
+    client = TelegramClient(
         StringSession(session_string),
-        TG_API_ID,
-        TG_API_HASH
+        api_id,
+        api_hash
     )
+
+    # Auto-sleep on FloodWait up to 60 seconds
+    client.flood_sleep_threshold = 60
+
+    return client
 
 
 def get_chat_identity(dialog) -> tuple:
@@ -353,6 +371,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/status - Проверить статус авторизации\n"
         "/export - Выбрать и экспортировать чат\n"
         "/search - Поиск чата по названию\n"
+        "/apihelp - Как получить свой API ID/Hash\n"
         "/privacy - Политика конфиденциальности\n"
         "/logout - Выйти из аккаунта\n"
         "/help - Показать эту справку\n\n"
@@ -422,7 +441,8 @@ async def privacy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*Какие данные мы собираем:*\n"
         "• Telegram User ID\n"
         "• Зашифрованная строка сессии\n"
-        "• Прогресс экспорта чатов\n\n"
+        "• Прогресс экспорта чатов\n"
+        "• Ваши API credentials (зашифрованы)\n\n"
         "*Как мы используем данные:*\n"
         "• Для авторизации в Telegram API\n"
         "• Для экспорта истории сообщений\n"
@@ -433,12 +453,46 @@ async def privacy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ Прекратить использование в любой момент\n\n"
         "*Безопасность:*\n"
         "🔐 Session strings хранятся зашифрованными\n"
+        "🔑 API credentials хранятся зашифрованными\n"
         "📁 Временные файлы удаляются автоматически\n"
         "🎤 Транскрипция использует сторонний сервис Groq\n\n"
         "*Полная версия:*\n"
         "Подробная политика доступна в файле `PRIVACY_POLICY.md` "
         "в репозитории бота.\n\n"
         "📅 Последнее обновление: 14 февраля 2026",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+async def apihelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /apihelp command - show how to get API credentials."""
+    user_id = update.effective_user.id
+    has_credentials = db.has_user_api_credentials(user_id)
+
+    status_text = "✅ У тебя уже есть свои API credentials" if has_credentials else "⚠️ Ты используешь общие API credentials"
+
+    await update.message.reply_text(
+        f"🔑 *Получение API Credentials*\n\n"
+        f"*Статус:* {status_text}\n\n"
+        f"*Зачем нужны свои credentials?*\n"
+        f"• Изоляция от других пользователей\n"
+        f"• Защита от блокировки\n"
+        f"• Лучшая производительность\n"
+        f"• Соответствие правилам Telegram\n\n"
+        f"*Как получить:*\n"
+        f"1️⃣ Открой https://my.telegram.org\n"
+        f"2️⃣ Войди с номером телефона\n"
+        f"3️⃣ API development tools\n"
+        f"4️⃣ Создай приложение\n"
+        f"5️⃣ Скопируй API ID и API Hash\n\n"
+        f"*Важно:*\n"
+        f"🔐 Храни credentials в секрете\n"
+        f"❌ Не публикуй в открытом доступе\n"
+        f"✅ Используй только для себя\n\n"
+        f"*Полная инструкция:*\n"
+        f"Файл `HOWTO_GET_API.md` в репозитории\n\n"
+        f"Для обновления credentials:\n"
+        f"/logout → войти заново с новыми данными",
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -526,7 +580,13 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Get all dialogs (increased limit to find more chats)
-        dialogs = await client.get_dialogs(limit=500)
+        try:
+            dialogs = await client.get_dialogs(limit=500)
+        except FloodWaitError as e:
+            await update.message.reply_text(
+                f"⏳ Лимит запросов Telegram. Подожди {e.seconds} сек. и попробуй снова."
+            )
+            return
 
         # Filter by search query using fuzzy search
         results = [d for d in dialogs if fuzzy_search(search_query, d.name)]
@@ -923,6 +983,7 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
                     transcription = await transcribe_voice(client, message)
                     if transcription:
                         transcribed_count += 1
+                    await asyncio.sleep(0.5)  # 500ms delay after transcription
                 except Exception as e:
                     logger.error(f"Failed to transcribe voice message {message.id}: {e}")
 
@@ -931,6 +992,9 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
                 sender = get_sender_name(message)
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
+
+            # Anti-spam delay to prevent FloodWait
+            await asyncio.sleep(0.05)  # 50ms between messages
 
         # Check if there are any new messages
         if not messages_data:
@@ -1060,6 +1124,9 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
 
+            # Anti-spam delay to prevent FloodWait
+            await asyncio.sleep(0.05)  # 50ms between messages
+
         if not messages_data:
             await update.message.reply_text("❌ Сообщения в этом чате не найдены")
             return
@@ -1161,12 +1228,16 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
                 transcription = await transcribe_voice(client, message)
                 if transcription:
                     transcribed_count += 1
+                await asyncio.sleep(0.5)  # 500ms delay after transcription
 
             content = format_message_content(message, transcription)
             if content:
                 sender = get_sender_name(message)
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
+
+            # Anti-spam delay to prevent FloodWait
+            await asyncio.sleep(0.05)  # 50ms between messages
 
         if not messages_data:
             await update.effective_chat.send_message("❌ Сообщения в этом чате не найдены")
@@ -1443,6 +1514,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
                     transcription = await transcribe_voice(client, message)
                     if transcription:
                         transcribed_count += 1
+                    await asyncio.sleep(0.5)  # 500ms delay after transcription
                 except Exception as e:
                     logger.error(f"Failed to transcribe voice message {message.id}: {e}")
 
@@ -1451,6 +1523,9 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
                 sender = get_sender_name(message)
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
+
+            # Anti-spam delay to prevent FloodWait
+            await asyncio.sleep(0.05)  # 50ms between messages
 
         # Check if there are any new messages
         if not messages_data:
@@ -1567,12 +1642,16 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
                 transcription = await transcribe_voice(client, message)
                 if transcription:
                     transcribed_count += 1
+                await asyncio.sleep(0.5)  # 500ms delay after transcription
 
             content = format_message_content(message, transcription)
             if content:
                 sender = get_sender_name(message)
                 messages_data.append((message.date, sender, content))
                 message_ids.append(message.id)
+
+            # Anti-spam delay to prevent FloodWait
+            await asyncio.sleep(0.05)  # 50ms between messages
 
         if not messages_data:
             await update.effective_chat.send_message("❌ Сообщения в этом чате не найдены")
@@ -1679,14 +1758,25 @@ def main():
     """Start the bot."""
     logger.info("Starting bot...")
 
-    # Create application
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Create application with rate limiter to prevent FloodWait
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .rate_limiter(AIORateLimiter(
+            overall_max_rate=30,      # 30 requests per second globally
+            overall_time_period=1.0,  # per 1 second
+            group_max_rate=20,        # 20 messages per minute for groups
+            group_time_period=60.0,   # per 60 seconds
+        ))
+        .build()
+    )
 
     # Command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("login", login_command))
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("apihelp", apihelp_command))
     application.add_handler(CommandHandler("privacy", privacy_command))
     application.add_handler(CommandHandler("search", search_command))
     application.add_handler(CommandHandler("logout", logout_command))

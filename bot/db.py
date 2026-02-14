@@ -31,6 +31,7 @@ Base = declarative_base()
 class User(Base):
     """
     User table - stores authenticated users with encrypted session strings.
+    Each user has their own API credentials for isolation.
     """
     __tablename__ = "users"
 
@@ -38,6 +39,9 @@ class User(Base):
     session_string = Column(Text, nullable=False)
     is_authenticated = Column(Boolean, default=False)
     last_activity = Column(Integer, default=lambda: int(time.time()))
+    # User's own Telegram API credentials (encrypted)
+    api_id = Column(Text, nullable=True)  # Encrypted TG_API_ID
+    api_hash = Column(Text, nullable=True)  # Encrypted TG_API_HASH
 
 
 class PendingLogin(Base):
@@ -233,5 +237,49 @@ def upsert_chat_progress(user_id: int, chat_id: int, chat_type: str, last_messag
             db.add(progress)
 
         db.commit()
+    finally:
+        db.close()
+
+
+def get_user_api_credentials(user_id: int) -> Optional[tuple[int, str]]:
+    """
+    Get user's own Telegram API credentials (decrypted).
+
+    Args:
+        user_id: Telegram user ID
+
+    Returns:
+        Tuple of (api_id, api_hash) or None if not set
+    """
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if user and user.api_id and user.api_hash:
+            try:
+                api_id = int(decrypt(user.api_id))
+                api_hash = decrypt(user.api_hash)
+                return (api_id, api_hash)
+            except (InvalidToken, ValueError) as e:
+                logger.error(f"Failed to decrypt API credentials for user {user_id}: {e}")
+                return None
+        return None
+    finally:
+        db.close()
+
+
+def has_user_api_credentials(user_id: int) -> bool:
+    """
+    Check if user has provided their own API credentials.
+
+    Args:
+        user_id: Telegram user ID
+
+    Returns:
+        True if user has API credentials, False otherwise
+    """
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        return user and user.api_id is not None and user.api_hash is not None
     finally:
         db.close()
