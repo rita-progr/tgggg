@@ -30,6 +30,8 @@ from telethon.tl.types import (
     MessageMediaContact,
     MessageMediaPoll,
     MessageService,
+    MessageEntityUrl,
+    MessageEntityTextUrl,
 )
 
 from . import db
@@ -94,6 +96,50 @@ def get_chat_identity(dialog) -> tuple:
     return chat_id, chat_type
 
 
+def extract_links_from_message(message) -> list:
+    """
+    Extract all links from a message:
+    - text entities (URL, TextUrl)
+    - media.webpage (link preview)
+    - reply_markup buttons (inline keyboard URLs)
+
+    Args:
+        message: Telethon Message object
+
+    Returns:
+        List of unique URLs
+    """
+    urls = set()
+
+    # Extract from text entities
+    if message.entities:
+        for entity in message.entities:
+            if isinstance(entity, MessageEntityUrl):
+                # Direct URL in text
+                if message.text:
+                    url = message.text[entity.offset:entity.offset + entity.length]
+                    urls.add(url)
+            elif isinstance(entity, MessageEntityTextUrl):
+                # Hyperlink with URL attribute
+                if hasattr(entity, 'url') and entity.url:
+                    urls.add(entity.url)
+
+    # Extract from webpage preview
+    if message.media and isinstance(message.media, MessageMediaWebPage):
+        webpage = message.media.webpage
+        if webpage and hasattr(webpage, 'url') and webpage.url:
+            urls.add(webpage.url)
+
+    # Extract from inline keyboard buttons
+    if message.reply_markup and hasattr(message.reply_markup, 'rows'):
+        for row in message.reply_markup.rows:
+            for button in row.buttons:
+                if hasattr(button, 'url') and button.url:
+                    urls.add(button.url)
+
+    return list(urls)
+
+
 def format_message_content(message, transcription: Optional[str] = None) -> Optional[str]:
     """
     Format message content for export, handling all message types.
@@ -111,6 +157,9 @@ def format_message_content(message, transcription: Optional[str] = None) -> Opti
 
     # Get text content
     text = message.text or message.message or ""
+
+    # Extract links from message
+    links = extract_links_from_message(message)
 
     # Handle media messages
     if message.media:
@@ -172,7 +221,15 @@ def format_message_content(message, transcription: Optional[str] = None) -> Opti
             else:
                 media_type = "[Document]"
         elif isinstance(message.media, MessageMediaWebPage):
-            media_type = "[Link preview]"
+            webpage = message.media.webpage
+            if webpage and hasattr(webpage, 'url'):
+                title = getattr(webpage, 'title', None)
+                if title:
+                    media_type = f"[Link preview: {title}]"
+                else:
+                    media_type = "[Link preview]"
+            else:
+                media_type = "[Link preview]"
         elif isinstance(message.media, MessageMediaGeo):
             media_type = "[Location]"
         elif isinstance(message.media, MessageMediaContact):
@@ -190,17 +247,22 @@ def format_message_content(message, transcription: Optional[str] = None) -> Opti
             media_type = "[Media]"
 
         # Combine media type with caption/text (skip for voice with transcription)
-        if text and not is_voice:
-            return f"{media_type} {text}"
+        if is_voice and transcription:
+            result = media_type
+        elif text and not is_voice:
+            result = f"{media_type} {text}"
         else:
-            return media_type
+            result = media_type
+    else:
+        # Plain text message
+        result = text if text else None
 
-    # Plain text message
-    if text:
-        return text
+    # Add links if present
+    if result and links:
+        links_text = f" ({', '.join(links)})"
+        result = result + links_text
 
-    # Message with no content we can export
-    return None
+    return result
 
 
 def get_sender_name(message) -> str:
@@ -808,7 +870,7 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
         voice_count = 0
         transcribed_count = 0
 
-        async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
+        async for message in client.iter_messages(selected_chat['chat_id'], min_id=last_message_id):
             transcription = None
 
             # Transcribe voice messages if enabled
@@ -941,7 +1003,7 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
         messages_data = []
         message_ids = []
 
-        async for message in client.iter_messages(selected_chat['id'], limit=limit):
+        async for message in client.iter_messages(selected_chat['chat_id'], limit=limit):
             content = format_message_content(message)
             if content:
                 sender = get_sender_name(message)
@@ -1033,7 +1095,7 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
         voice_count = 0
         transcribed_count = 0
 
-        async for message in client.iter_messages(selected_chat['id'], limit=limit):
+        async for message in client.iter_messages(selected_chat['chat_id'], limit=limit):
             transcription = None
 
             # Transcribe voice messages if enabled
@@ -1300,7 +1362,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
         voice_count = 0
         transcribed_count = 0
 
-        async for message in client.iter_messages(selected_chat['id'], min_id=last_message_id):
+        async for message in client.iter_messages(selected_chat['chat_id'], min_id=last_message_id):
             transcription = None
 
             # Transcribe voice messages if enabled
@@ -1418,7 +1480,7 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
         voice_count = 0
         transcribed_count = 0
 
-        async for message in client.iter_messages(selected_chat['id'], limit=limit):
+        async for message in client.iter_messages(selected_chat['chat_id'], limit=limit):
             transcription = None
 
             # Transcribe voice messages if enabled
