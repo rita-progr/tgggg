@@ -11,13 +11,18 @@ from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     Application,
-    AIORateLimiter,
     CommandHandler,
     ContextTypes,
     MessageHandler,
     CallbackQueryHandler,
     filters,
 )
+
+try:
+    from telegram.ext import AIORateLimiter
+    HAS_RATE_LIMITER = True
+except ImportError:
+    HAS_RATE_LIMITER = False
 from telegram.constants import ParseMode
 
 from telethon import TelegramClient
@@ -1850,17 +1855,17 @@ def main():
     logger.info("Starting bot...")
 
     # Create application with rate limiter to prevent FloodWait
-    application = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .rate_limiter(AIORateLimiter(
+    builder = Application.builder().token(BOT_TOKEN)
+    if HAS_RATE_LIMITER:
+        builder = builder.rate_limiter(AIORateLimiter(
             overall_max_rate=30,      # 30 requests per second globally
             overall_time_period=1.0,  # per 1 second
             group_max_rate=20,        # 20 messages per minute for groups
             group_time_period=60.0,   # per 60 seconds
         ))
-        .build()
-    )
+    else:
+        logger.warning("AIORateLimiter not available. Install python-telegram-bot[rate-limiter] for rate limiting.")
+    application = builder.build()
 
     # Command handlers
     application.add_handler(CommandHandler("start", start_command))
