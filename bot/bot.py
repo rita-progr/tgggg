@@ -95,6 +95,17 @@ def get_user_client(user_id: int) -> Optional[TelegramClient]:
     return client
 
 
+async def connect_client(client: TelegramClient) -> None:
+    """
+    Connect client and populate entity cache.
+    StringSession starts with empty cache, so get_dialogs() is needed
+    to resolve PeerUser/PeerChat entities for iter_messages().
+    """
+    await client.connect()
+    # Populate entity cache so PeerUser/PeerChat can be resolved
+    await client.get_dialogs(limit=100)
+
+
 def get_chat_identity(dialog) -> tuple:
     """
     Extract chat_id and chat_type from Telethon dialog.
@@ -1061,7 +1072,7 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
             await update.effective_chat.send_message("❌ Сессия не найдена")
             return
 
-        await client.connect()
+        await connect_client(client)
 
         # Export only new messages
         messages_data = []
@@ -1207,7 +1218,7 @@ async def handle_export_limit(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("❌ Сессия не найдена")
             return
 
-        await client.connect()
+        await connect_client(client)
 
         # Export messages
         messages_data = []
@@ -1307,7 +1318,7 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
             await update.effective_chat.send_message("❌ Сессия не найдена")
             return
 
-        await client.connect()
+        await connect_client(client)
 
         # Export messages
         messages_data = []
@@ -1592,7 +1603,7 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
             await update.callback_query.edit_message_text("❌ Сессия не найдена")
             return
 
-        await client.connect()
+        await connect_client(client)
 
         # Export only new messages
         messages_data = []
@@ -1721,7 +1732,7 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
             await update.effective_chat.send_message("❌ Сессия не найдена")
             return
 
-        await client.connect()
+        await connect_client(client)
 
         # Export messages
         messages_data = []
