@@ -74,6 +74,29 @@ class ChatProgress(Base):
 # Create tables if they don't exist
 Base.metadata.create_all(bind=engine)
 
+# Auto-migrate: add missing columns to existing tables
+def _run_migrations():
+    """Add missing columns that were added after initial deployment."""
+    from sqlalchemy import text, inspect as sa_inspect
+    try:
+        inspector = sa_inspect(engine)
+        existing_columns = {col['name'] for col in inspector.get_columns('users')}
+
+        with engine.connect() as conn:
+            if 'api_id' not in existing_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN api_id TEXT"))
+                conn.commit()
+                logger.info("Migration: added api_id column to users table")
+
+            if 'api_hash' not in existing_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN api_hash TEXT"))
+                conn.commit()
+                logger.info("Migration: added api_hash column to users table")
+    except Exception as e:
+        logger.error(f"Migration error: {e}")
+
+_run_migrations()
+
 
 def get_session_string(user_id: int) -> Optional[str]:
     """
