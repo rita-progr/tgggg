@@ -196,6 +196,7 @@ def format_duration(seconds: int) -> str:
     """Format seconds to M:SS or H:MM:SS."""
     if seconds is None or seconds < 0:
         return "0:00"
+    seconds = int(seconds)
     h = seconds // 3600
     m = (seconds % 3600) // 60
     s = seconds % 60
