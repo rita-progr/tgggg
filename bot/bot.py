@@ -2111,6 +2111,7 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
 
     sent_count = 0
     failed_count = 0
+    last_error = None
     bot_username = (await context.bot.get_me()).username
 
     try:
@@ -2134,7 +2135,11 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
                     continue
 
                 # Forward via Telethon directly to bot chat (no size limit)
-                await client.forward_messages(bot_username, msg, selected_chat['chat_id'])
+                await client.forward_messages(
+                    entity=bot_username,
+                    messages=msg.id,
+                    from_peer=selected_chat['chat_id'],
+                )
                 sent_count += 1
 
                 # Rate limiting delay between videos
@@ -2151,7 +2156,8 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
                 await asyncio.sleep(e.seconds + 1)
                 failed_count += 1
             except Exception as e:
-                logger.error(f"Error forwarding video {vid['message_id']}: {e}")
+                logger.error(f"Error forwarding video {vid['message_id']}: {e}", exc_info=True)
+                last_error = str(e)
                 failed_count += 1
 
         # Final summary
@@ -2160,6 +2166,8 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
             parts.append(f"✅ Переслано: {sent_count}")
         if failed_count:
             parts.append(f"❌ Ошибки: {failed_count}")
+            if last_error:
+                parts.append(f"Последняя ошибка: {last_error}")
         summary = "\n".join(parts) or "Ничего не загружено."
 
         await query.edit_message_text(
