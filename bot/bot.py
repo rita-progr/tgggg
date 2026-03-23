@@ -2,6 +2,7 @@
 Telegram Bot for exporting chat history.
 Uses Telethon sessions stored in database after WebApp authentication.
 """
+import io
 import os
 import asyncio
 import logging
@@ -2112,7 +2113,6 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
     sent_count = 0
     failed_count = 0
     last_error = None
-    bot_username = (await context.bot.get_me()).username
 
     try:
         await connect_client(client)
@@ -2134,31 +2134,27 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
                     failed_count += 1
                     continue
 
-                # Try forwarding first, fallback to download+upload for protected chats
+                # Try forward to Saved Messages first (instant, no download)
                 try:
                     await client.forward_messages(
-                        entity=bot_username,
+                        entity='me',
                         messages=msg.id,
                         from_peer=selected_chat['chat_id'],
                     )
-                except Exception as fwd_err:
-                    if 'protected' in str(fwd_err).lower() or 'forward' in str(fwd_err).lower():
-                        # Protected chat — download and send as new message via Telethon
-                        filepath = f"/tmp/video_{user_id}_{vid['message_id']}.mp4"
-                        try:
-                            await client.download_media(msg, file=filepath)
-                            caption = f"{vid['date_str']} | {vid['sender']}"
-                            await client.send_file(
-                                bot_username,
-                                filepath,
-                                caption=caption,
-                                supports_streaming=True,
-                            )
-                        finally:
-                            if os.path.exists(filepath):
-                                os.remove(filepath)
-                    else:
-                        raise
+                except Exception:
+                    # Protected chat — download to memory and re-upload to Saved Messages
+                    media_bytes = await client.download_media(msg.media, file=bytes)
+                    if not media_bytes:
+                        failed_count += 1
+                        continue
+                    buf = io.BytesIO(media_bytes)
+                    buf.name = vid.get('filename') or f"video_{vid['message_id']}.mp4"
+                    await client.send_file(
+                        'me',
+                        file=buf,
+                        file_size=len(media_bytes),
+                        supports_streaming=True,
+                    )
                 sent_count += 1
 
                 # Rate limiting delay between videos
@@ -2182,7 +2178,7 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
         # Final summary
         parts = []
         if sent_count:
-            parts.append(f"✅ Переслано: {sent_count}")
+            parts.append(f"✅ Переслано в Избранное: {sent_count}")
         if failed_count:
             parts.append(f"❌ Ошибки: {failed_count}")
             if last_error:
