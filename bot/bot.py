@@ -236,7 +236,7 @@ def get_video_metadata(message) -> dict:
         'width': width,
         'height': height,
         'filename': filename,
-        'is_large': size_mb > 50,
+        'is_large': False,
     }
 
 
@@ -2110,20 +2110,18 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     sent_count = 0
-    forwarded_count = 0
     failed_count = 0
-    chat_id = update.effective_chat.id
+    bot_username = (await context.bot.get_me()).username
 
     try:
         await connect_client(client)
 
         for i, vid in enumerate(selected_videos):
-            filepath = None
             try:
                 # Progress update
                 try:
                     await query.edit_message_text(
-                        f"⏳ Загрузка видео {i + 1}/{total}...\n"
+                        f"⏳ Пересылка видео {i + 1}/{total}...\n"
                         f"({vid['size_mb']} MB, {format_duration(vid['duration'])})",
                         parse_mode=ParseMode.MARKDOWN
                     )
@@ -2135,33 +2133,15 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
                     failed_count += 1
                     continue
 
-                if vid['is_large']:
-                    # Forward to Saved Messages for large files
-                    await client.forward_messages('me', msg, selected_chat['chat_id'])
-                    forwarded_count += 1
-                else:
-                    # Download and send via Bot API
-                    filepath = f"/tmp/video_{user_id}_{vid['message_id']}.mp4"
-                    await client.download_media(msg, file=filepath)
-
-                    if os.path.exists(filepath):
-                        caption = f"{vid['date_str']} | {vid['sender']}"
-                        with open(filepath, 'rb') as f:
-                            await context.bot.send_video(
-                                chat_id=chat_id,
-                                video=f,
-                                caption=caption,
-                                supports_streaming=True,
-                            )
-                        sent_count += 1
-                    else:
-                        failed_count += 1
+                # Forward via Telethon directly to bot chat (no size limit)
+                await client.forward_messages(bot_username, msg, selected_chat['chat_id'])
+                sent_count += 1
 
                 # Rate limiting delay between videos
                 await asyncio.sleep(2)
 
             except FloodWaitError as e:
-                logger.warning(f"FloodWait {e.seconds}s during video download")
+                logger.warning(f"FloodWait {e.seconds}s during video forward")
                 try:
                     await query.edit_message_text(
                         f"⏳ Telegram просит подождать {e.seconds} сек..."
@@ -2171,21 +2151,13 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
                 await asyncio.sleep(e.seconds + 1)
                 failed_count += 1
             except Exception as e:
-                logger.error(f"Error downloading video {vid['message_id']}: {e}")
+                logger.error(f"Error forwarding video {vid['message_id']}: {e}")
                 failed_count += 1
-            finally:
-                if filepath and os.path.exists(filepath):
-                    try:
-                        os.remove(filepath)
-                    except Exception:
-                        pass
 
         # Final summary
         parts = []
         if sent_count:
-            parts.append(f"✅ Отправлено: {sent_count}")
-        if forwarded_count:
-            parts.append(f"📨 В Избранное: {forwarded_count}")
+            parts.append(f"✅ Переслано: {sent_count}")
         if failed_count:
             parts.append(f"❌ Ошибки: {failed_count}")
         summary = "\n".join(parts) or "Ничего не загружено."
