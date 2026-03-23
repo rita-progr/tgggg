@@ -39,6 +39,7 @@ from telethon.tl.types import (
     MessageService,
     MessageEntityUrl,
     MessageEntityTextUrl,
+    DocumentAttributeVideo,
 )
 
 from . import db
@@ -172,6 +173,70 @@ def extract_links_from_message(message) -> list:
                     urls.add(button.url)
 
     return list(urls)
+
+
+def is_video_message(msg) -> bool:
+    """Check if a Telethon message contains a downloadable video (not round/video note)."""
+    if not msg.media or not isinstance(msg.media, MessageMediaDocument):
+        return False
+    doc = msg.media.document
+    if not doc:
+        return False
+    for attr in getattr(doc, 'attributes', []):
+        # Exclude round video messages (video notes)
+        if getattr(attr, 'round_message', False):
+            return False
+    mime = getattr(doc, 'mime_type', '') or ''
+    if 'video' not in mime:
+        return False
+    return True
+
+
+def format_duration(seconds: int) -> str:
+    """Format seconds to M:SS or H:MM:SS."""
+    if seconds is None or seconds < 0:
+        return "0:00"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def get_video_metadata(message) -> dict:
+    """Extract video metadata from a Telethon message."""
+    doc = message.media.document
+    size_bytes = getattr(doc, 'size', 0) or 0
+    size_mb = round(size_bytes / (1024 * 1024), 1)
+
+    duration = 0
+    width = 0
+    height = 0
+    filename = None
+
+    for attr in getattr(doc, 'attributes', []):
+        if isinstance(attr, DocumentAttributeVideo):
+            duration = getattr(attr, 'duration', 0) or 0
+            width = getattr(attr, 'w', 0) or 0
+            height = getattr(attr, 'h', 0) or 0
+        if hasattr(attr, 'file_name') and attr.file_name:
+            filename = attr.file_name
+
+    sender = get_sender_name(message)
+    date_str = message.date.strftime('%Y-%m-%d %H:%M') if message.date else ''
+
+    return {
+        'message_id': message.id,
+        'date_str': date_str,
+        'sender': sender,
+        'size_mb': size_mb,
+        'duration': duration,
+        'width': width,
+        'height': height,
+        'filename': filename,
+        'is_large': size_mb > 50,
+    }
 
 
 def format_message_content(message, transcription: Optional[str] = None) -> Optional[str]:
@@ -935,6 +1000,7 @@ async def export_chat_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             if TRANSCRIPTION_AVAILABLE:
                 keyboard.insert(1, [InlineKeyboardButton("📥 Только новые + транскрипция", callback_data="export_mode_incremental_transcribe")])
                 keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data="export_mode_all_max_transcribe")])
+            keyboard.append([InlineKeyboardButton("🎬 Скачать видео из чата", callback_data="export_mode_videos")])
             await query.edit_message_text(
                 f"📊 Выбран: *{selected_chat['name']}*\n\n"
                 "Этот чат уже экспортировался. Выбери опцию:",
@@ -949,6 +1015,7 @@ async def export_chat_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             if TRANSCRIPTION_AVAILABLE:
                 keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data="export_mode_all_max_transcribe")])
             keyboard.append([InlineKeyboardButton("⚙️ Указать количество", callback_data="export_mode_custom")])
+            keyboard.append([InlineKeyboardButton("🎬 Скачать видео из чата", callback_data="export_mode_videos")])
             await query.edit_message_text(
                 f"📊 Выбран: *{selected_chat['name']}*\n\n"
                 "Сколько сообщений экспортировать?",
@@ -1039,6 +1106,10 @@ async def export_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 "Сколько сообщений экспортировать? (По умолчанию: 1000, Макс: 10000)\n"
                 "Напиши число"
             )
+
+        elif callback_data == "export_mode_videos":
+            # User chose "download videos"
+            await video_scan_callback(update, context)
 
     except Exception as e:
         logger.error(f"Error in export_mode_callback: {str(e)}", exc_info=True)
@@ -1450,6 +1521,7 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
             if TRANSCRIPTION_AVAILABLE:
                 keyboard.insert(1, [InlineKeyboardButton("📥 Только новые + транскрипция", callback_data=f"search_export_mode_incremental_transcribe_{index}")])
                 keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data=f"search_export_mode_transcribe_{index}")])
+            keyboard.append([InlineKeyboardButton("🎬 Скачать видео", callback_data=f"search_export_mode_videos_{index}")])
             await query.edit_message_text(
                 f"📊 Выбран: *{selected_chat['name']}*\n\n"
                 "Этот чат уже экспортировался. Выбери опцию:",
@@ -1464,6 +1536,7 @@ async def search_export_callback(update: Update, context: ContextTypes.DEFAULT_T
             if TRANSCRIPTION_AVAILABLE:
                 keyboard.append([InlineKeyboardButton("🎤 Все + транскрипция", callback_data=f"search_export_mode_transcribe_{index}")])
             keyboard.append([InlineKeyboardButton("⚙️ Указать количество", callback_data=f"search_export_mode_custom_{index}")])
+            keyboard.append([InlineKeyboardButton("🎬 Скачать видео", callback_data=f"search_export_mode_videos_{index}")])
             await query.edit_message_text(
                 f"📊 Выбран: *{selected_chat['name']}*\n\n"
                 "Сколько сообщений экспортировать?",
@@ -1562,6 +1635,11 @@ async def search_export_mode_callback(update: Update, context: ContextTypes.DEFA
             )
             # Export with preset limit and transcription
             await search_export_with_limit(update, context, 10000)
+
+        elif callback_data.startswith("search_export_mode_videos_"):
+            # User chose "download videos"
+            context.user_data['awaiting_search_export_limit'] = False
+            await video_scan_callback(update, context)
 
         elif callback_data.startswith("search_export_mode_custom_"):
             # User chose "custom amount"
@@ -1825,6 +1903,311 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
                 pass
 
 
+VIDEOS_PER_PAGE = 5
+
+
+async def show_video_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int):
+    """Render paginated video list with toggle selection buttons."""
+    video_list = context.user_data.get('video_list', [])
+    selected = context.user_data.get('video_selected', set())
+    total = len(video_list)
+    total_pages = max(1, (total + VIDEOS_PER_PAGE - 1) // VIDEOS_PER_PAGE)
+    page = max(0, min(page, total_pages - 1))
+    context.user_data['video_page'] = page
+
+    start = page * VIDEOS_PER_PAGE
+    end = min(start + VIDEOS_PER_PAGE, total)
+    page_videos = video_list[start:end]
+
+    lines = [f"*Видео в чате* ({total} найдено)\n"]
+    keyboard = []
+
+    for i, vid in enumerate(page_videos):
+        idx = start + i
+        check = "\u2705 " if idx in selected else ""
+        large_tag = " (> 50MB, -> Saved)" if vid['is_large'] else ""
+        dur = format_duration(vid['duration'])
+        line = f"{check}{idx + 1}. {vid['date_str']} | {vid['sender']}\n    {vid['size_mb']} MB, {dur}{large_tag}"
+        lines.append(line)
+        btn_label = f"{'✅ ' if idx in selected else ''}{idx + 1}. {vid['size_mb']}MB {dur}"
+        keyboard.append([InlineKeyboardButton(btn_label, callback_data=f"vid_sel_{idx}")])
+
+    # Action buttons row
+    action_row = []
+    if len(selected) < total:
+        action_row.append(InlineKeyboardButton("Выбрать все", callback_data="vid_all"))
+    else:
+        action_row.append(InlineKeyboardButton("Снять все", callback_data="vid_none"))
+    if selected:
+        action_row.append(InlineKeyboardButton(f"Скачать ({len(selected)})", callback_data="vid_download"))
+    action_row.append(InlineKeyboardButton("Отмена", callback_data="vid_cancel"))
+    keyboard.append(action_row)
+
+    # Pagination row
+    if total_pages > 1:
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("<<", callback_data=f"vid_page_{page - 1}"))
+        nav_row.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="vid_noop"))
+        if page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton(">>", callback_data=f"vid_page_{page + 1}"))
+        keyboard.append(nav_row)
+
+    text = "\n".join(lines)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    query = update.callback_query
+    if query:
+        try:
+            await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            await query.edit_message_text(text, reply_markup=reply_markup)
+    else:
+        await update.effective_chat.send_message(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+
+
+async def video_scan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Scan chat for videos and show paginated list."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    selected_chat = context.user_data.get('selected_chat')
+    if not selected_chat:
+        await query.edit_message_text("❌ Чат не выбран. Попробуй снова.")
+        return
+
+    await query.edit_message_text(
+        f"🔍 Сканирую видео в *{selected_chat['name']}*...\nЭто может занять некоторое время.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    client = get_user_client(user_id)
+    if not client:
+        await query.edit_message_text("❌ Сессия не найдена. Используй /login")
+        return
+
+    try:
+        await connect_client(client)
+
+        video_list = []
+        count = 0
+        async for message in client.iter_messages(selected_chat['chat_id'], limit=10000):
+            count += 1
+            if is_video_message(message):
+                meta = get_video_metadata(message)
+                video_list.append(meta)
+            # Progress update every 2000 messages
+            if count % 2000 == 0:
+                try:
+                    await query.edit_message_text(
+                        f"🔍 Сканирую видео в *{selected_chat['name']}*...\n"
+                        f"Проверено {count} сообщений, найдено {len(video_list)} видео.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except Exception:
+                    pass
+            await asyncio.sleep(0.02)
+
+        if not video_list:
+            await query.edit_message_text(
+                f"❌ Видео не найдены в *{selected_chat['name']}*.\n"
+                f"Проверено {count} сообщений.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        context.user_data['video_list'] = video_list
+        context.user_data['video_selected'] = set()
+        context.user_data['video_page'] = 0
+
+        await show_video_page(update, context, 0)
+
+    except FloodWaitError as e:
+        await query.edit_message_text(
+            f"⏳ Лимит запросов Telegram. Подожди {e.seconds} сек. и попробуй снова."
+        )
+    except Exception as e:
+        logger.error(f"Error scanning videos: {str(e)}", exc_info=True)
+        await query.edit_message_text(f"❌ Ошибка сканирования: {str(e)}")
+    finally:
+        try:
+            await client.disconnect()
+        except:
+            pass
+
+
+async def video_select_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle all vid_* callbacks: selection, pagination, download, cancel."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    video_list = context.user_data.get('video_list', [])
+    selected = context.user_data.get('video_selected', set())
+
+    if data.startswith("vid_sel_"):
+        idx = int(data.split("_")[2])
+        if idx in selected:
+            selected.discard(idx)
+        else:
+            selected.add(idx)
+        context.user_data['video_selected'] = selected
+        page = context.user_data.get('video_page', 0)
+        await show_video_page(update, context, page)
+
+    elif data == "vid_all":
+        context.user_data['video_selected'] = set(range(len(video_list)))
+        page = context.user_data.get('video_page', 0)
+        await show_video_page(update, context, page)
+
+    elif data == "vid_none":
+        context.user_data['video_selected'] = set()
+        page = context.user_data.get('video_page', 0)
+        await show_video_page(update, context, page)
+
+    elif data.startswith("vid_page_"):
+        page = int(data.split("_")[2])
+        await show_video_page(update, context, page)
+
+    elif data == "vid_download":
+        await video_download_execute(update, context)
+
+    elif data == "vid_cancel":
+        context.user_data.pop('video_list', None)
+        context.user_data.pop('video_selected', None)
+        context.user_data.pop('video_page', None)
+        await query.edit_message_text("❌ Загрузка видео отменена.")
+
+    elif data == "vid_noop":
+        pass
+
+
+async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Download selected videos and send to user."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    video_list = context.user_data.get('video_list', [])
+    selected = context.user_data.get('video_selected', set())
+    selected_chat = context.user_data.get('selected_chat')
+
+    if not selected or not video_list or not selected_chat:
+        await query.edit_message_text("❌ Нет выбранных видео.")
+        return
+
+    selected_videos = [video_list[i] for i in sorted(selected)]
+    total = len(selected_videos)
+
+    await query.edit_message_text(
+        f"⏳ Начинаю загрузку {total} видео из *{selected_chat['name']}*...",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    client = get_user_client(user_id)
+    if not client:
+        await query.edit_message_text("❌ Сессия не найдена. Используй /login")
+        return
+
+    sent_count = 0
+    forwarded_count = 0
+    failed_count = 0
+    chat_id = update.effective_chat.id
+
+    try:
+        await connect_client(client)
+
+        for i, vid in enumerate(selected_videos):
+            filepath = None
+            try:
+                # Progress update
+                try:
+                    await query.edit_message_text(
+                        f"⏳ Загрузка видео {i + 1}/{total}...\n"
+                        f"({vid['size_mb']} MB, {format_duration(vid['duration'])})",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except Exception:
+                    pass
+
+                msg = await client.get_messages(selected_chat['chat_id'], ids=vid['message_id'])
+                if not msg:
+                    failed_count += 1
+                    continue
+
+                if vid['is_large']:
+                    # Forward to Saved Messages for large files
+                    await client.forward_messages('me', msg, selected_chat['chat_id'])
+                    forwarded_count += 1
+                else:
+                    # Download and send via Bot API
+                    filepath = f"/tmp/video_{user_id}_{vid['message_id']}.mp4"
+                    await client.download_media(msg, file=filepath)
+
+                    if os.path.exists(filepath):
+                        caption = f"{vid['date_str']} | {vid['sender']}"
+                        with open(filepath, 'rb') as f:
+                            await context.bot.send_video(
+                                chat_id=chat_id,
+                                video=f,
+                                caption=caption,
+                                supports_streaming=True,
+                            )
+                        sent_count += 1
+                    else:
+                        failed_count += 1
+
+                # Rate limiting delay between videos
+                await asyncio.sleep(2)
+
+            except FloodWaitError as e:
+                logger.warning(f"FloodWait {e.seconds}s during video download")
+                try:
+                    await query.edit_message_text(
+                        f"⏳ Telegram просит подождать {e.seconds} сек..."
+                    )
+                except Exception:
+                    pass
+                await asyncio.sleep(e.seconds + 1)
+                failed_count += 1
+            except Exception as e:
+                logger.error(f"Error downloading video {vid['message_id']}: {e}")
+                failed_count += 1
+            finally:
+                if filepath and os.path.exists(filepath):
+                    try:
+                        os.remove(filepath)
+                    except Exception:
+                        pass
+
+        # Final summary
+        parts = []
+        if sent_count:
+            parts.append(f"✅ Отправлено: {sent_count}")
+        if forwarded_count:
+            parts.append(f"📨 В Избранное: {forwarded_count}")
+        if failed_count:
+            parts.append(f"❌ Ошибки: {failed_count}")
+        summary = "\n".join(parts) or "Ничего не загружено."
+
+        await query.edit_message_text(
+            f"*Загрузка завершена*\n\n{summary}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    except Exception as e:
+        logger.error(f"Error in video_download_execute: {str(e)}", exc_info=True)
+        await query.edit_message_text(f"❌ Ошибка загрузки: {str(e)}")
+    finally:
+        try:
+            await client.disconnect()
+        except:
+            pass
+        # Clean up user data
+        context.user_data.pop('video_list', None)
+        context.user_data.pop('video_selected', None)
+        context.user_data.pop('video_page', None)
+
+
 async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /logout command with confirmation."""
     keyboard = [
@@ -1896,6 +2279,9 @@ def main():
 
     # Export chat selection callback handler
     application.add_handler(CallbackQueryHandler(export_chat_callback, pattern="^export_chat_"))
+
+    # Video selection/download callback handler
+    application.add_handler(CallbackQueryHandler(video_select_callback, pattern="^vid_"))
 
     # Export mode callback handler (for /export command - incremental vs full)
     application.add_handler(CallbackQueryHandler(export_mode_callback, pattern="^export_mode_"))
