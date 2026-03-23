@@ -2134,12 +2134,31 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
                     failed_count += 1
                     continue
 
-                # Forward via Telethon directly to bot chat (no size limit)
-                await client.forward_messages(
-                    entity=bot_username,
-                    messages=msg.id,
-                    from_peer=selected_chat['chat_id'],
-                )
+                # Try forwarding first, fallback to download+upload for protected chats
+                try:
+                    await client.forward_messages(
+                        entity=bot_username,
+                        messages=msg.id,
+                        from_peer=selected_chat['chat_id'],
+                    )
+                except Exception as fwd_err:
+                    if 'protected' in str(fwd_err).lower() or 'forward' in str(fwd_err).lower():
+                        # Protected chat — download and send as new message via Telethon
+                        filepath = f"/tmp/video_{user_id}_{vid['message_id']}.mp4"
+                        try:
+                            await client.download_media(msg, file=filepath)
+                            caption = f"{vid['date_str']} | {vid['sender']}"
+                            await client.send_file(
+                                bot_username,
+                                filepath,
+                                caption=caption,
+                                supports_streaming=True,
+                            )
+                        finally:
+                            if os.path.exists(filepath):
+                                os.remove(filepath)
+                    else:
+                        raise
                 sent_count += 1
 
                 # Rate limiting delay between videos
