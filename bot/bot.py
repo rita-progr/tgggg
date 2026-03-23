@@ -2149,11 +2149,18 @@ async def video_download_execute(update: Update, context: ContextTypes.DEFAULT_T
                         continue
                     buf = io.BytesIO(media_bytes)
                     buf.name = vid.get('filename') or f"video_{vid['message_id']}.mp4"
+                    # Preserve original video attributes to avoid re-compression
+                    orig_attrs = []
+                    for attr in getattr(msg.media.document, 'attributes', []):
+                        if isinstance(attr, DocumentAttributeVideo):
+                            orig_attrs.append(attr)
                     await client.send_file(
                         'me',
                         file=buf,
                         file_size=len(media_bytes),
                         supports_streaming=True,
+                        attributes=orig_attrs or None,
+                        force_document=True,
                     )
                 sent_count += 1
 
