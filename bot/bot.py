@@ -1163,9 +1163,18 @@ async def export_do_incremental(update: Update, context: ContextTypes.DEFAULT_TY
                     transcription = await transcribe_voice(client, message)
                     if transcription:
                         transcribed_count += 1
-                    await asyncio.sleep(0.5)  # 500ms delay after transcription
+                    await asyncio.sleep(3)  # 3s delay to respect Groq rate limits
                 except Exception as e:
                     logger.error(f"Failed to transcribe voice message {message.id}: {e}")
+
+                # Send progress every 10 voice messages
+                if voice_count % 10 == 0:
+                    try:
+                        await update.effective_chat.send_message(
+                            f"⏳ Транскрибировано {transcribed_count}/{voice_count} голосовых..."
+                        )
+                    except Exception:
+                        pass
 
             content = format_message_content(message, transcription)
             if content:
@@ -1408,7 +1417,16 @@ async def export_do_export_with_limit(update: Update, context: ContextTypes.DEFA
                 transcription = await transcribe_voice(client, message)
                 if transcription:
                     transcribed_count += 1
-                await asyncio.sleep(0.5)  # 500ms delay after transcription
+                await asyncio.sleep(3)  # 3s delay to respect Groq rate limits
+
+                # Send progress every 10 voice messages
+                if voice_count % 10 == 0:
+                    try:
+                        await update.effective_chat.send_message(
+                            f"⏳ Транскрибировано {transcribed_count}/{voice_count} голосовых..."
+                        )
+                    except Exception:
+                        pass
 
             content = format_message_content(message, transcription)
             if content:
@@ -1701,9 +1719,18 @@ async def search_export_do_incremental(update: Update, context: ContextTypes.DEF
                     transcription = await transcribe_voice(client, message)
                     if transcription:
                         transcribed_count += 1
-                    await asyncio.sleep(0.5)  # 500ms delay after transcription
+                    await asyncio.sleep(3)  # 3s delay to respect Groq rate limits
                 except Exception as e:
                     logger.error(f"Failed to transcribe voice message {message.id}: {e}")
+
+                # Send progress every 10 voice messages
+                if voice_count % 10 == 0:
+                    try:
+                        await update.effective_chat.send_message(
+                            f"⏳ Транскрибировано {transcribed_count}/{voice_count} голосовых..."
+                        )
+                    except Exception:
+                        pass
 
             content = format_message_content(message, transcription)
             if content:
@@ -1829,7 +1856,16 @@ async def search_export_with_limit(update: Update, context: ContextTypes.DEFAULT
                 transcription = await transcribe_voice(client, message)
                 if transcription:
                     transcribed_count += 1
-                await asyncio.sleep(0.5)  # 500ms delay after transcription
+                await asyncio.sleep(3)  # 3s delay to respect Groq rate limits
+
+                # Send progress every 10 voice messages
+                if voice_count % 10 == 0:
+                    try:
+                        await update.effective_chat.send_message(
+                            f"⏳ Транскрибировано {transcribed_count}/{voice_count} голосовых..."
+                        )
+                    except Exception:
+                        pass
 
             content = format_message_content(message, transcription)
             if content:
